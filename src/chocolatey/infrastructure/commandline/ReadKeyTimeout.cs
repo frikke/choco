@@ -1,24 +1,24 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Threading;
+
 namespace chocolatey.infrastructure.commandline
 {
-    using System;
-    using System.Threading;
-
     /// <summary>
     ///   Because sometimes you to timeout a readkey instead of blocking infinitely.
     /// </summary>
@@ -38,24 +38,24 @@ namespace chocolatey.infrastructure.commandline
         {
             _backgroundResponseReset = new AutoResetEvent(false);
             _foregroundResponseReset = new AutoResetEvent(false);
-            _responseThread = new Thread(console_read_key)
+            _responseThread = new Thread(ConsoleReadKey)
             {
                 IsBackground = true
             };
             _responseThread.Start();
         }
 
-        private void console_read_key()
+        private void ConsoleReadKey()
         {
             while (true)
             {
                 _backgroundResponseReset.WaitOne();
-                _input = Console.ReadKey(intercept:true);
+                _input = Console.ReadKey(intercept: true);
                 _foregroundResponseReset.Set();
             }
         }
 
-        public static ConsoleKeyInfo read_key(int timeoutMilliseconds)
+        public static ConsoleKeyInfo ReadKey(int timeoutMilliseconds)
         {
             using (var readLine = new ReadKeyTimeout())
             {
@@ -63,13 +63,16 @@ namespace chocolatey.infrastructure.commandline
 
                 return readLine._foregroundResponseReset.WaitOne(timeoutMilliseconds) ?
                            readLine._input
-                           : new ConsoleKeyInfo('\0',ConsoleKey.Enter,false,false,false);
+                           : new ConsoleKeyInfo('\0', ConsoleKey.Enter, false, false, false);
             }
         }
 
         public void Dispose()
         {
-            if (_isDisposing) return;
+            if (_isDisposing)
+            {
+                return;
+            }
 
             _isDisposing = true;
             _responseThread.Abort();
@@ -79,5 +82,10 @@ namespace chocolatey.infrastructure.commandline
             _foregroundResponseReset.Dispose();
         }
 
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public static ConsoleKeyInfo read_key(int timeoutMilliseconds)
+            => ReadKey(timeoutMilliseconds);
+#pragma warning restore IDE0022, IDE1006
     }
 }

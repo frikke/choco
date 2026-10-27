@@ -1,4 +1,4 @@
-﻿// Copyright © 2017 - 2019 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,32 +14,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using chocolatey.infrastructure.app;
+using chocolatey.infrastructure.app.builders;
+using chocolatey.infrastructure.app.configuration;
+using chocolatey.infrastructure.app.runners;
+using chocolatey.infrastructure.app.validations;
+using chocolatey.infrastructure.configuration;
+using chocolatey.infrastructure.extractors;
+using chocolatey.infrastructure.licensing;
+using chocolatey.infrastructure.logging;
+using chocolatey.infrastructure.registration;
+using chocolatey.infrastructure.synchronization;
+using chocolatey.resources;
+using log4net;
+using SimpleInjector;
+using Assembly = chocolatey.infrastructure.adapters.Assembly;
+using IFileSystem = chocolatey.infrastructure.filesystem.IFileSystem;
+using ILog = chocolatey.infrastructure.logging.ILog;
+using static chocolatey.StringResources;
+
 namespace chocolatey
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Reflection;
-    using infrastructure.licensing;
-    using SimpleInjector;
-    using infrastructure.app;
-    using infrastructure.app.builders;
-    using infrastructure.app.configuration;
-    using infrastructure.app.runners;
-    using infrastructure.configuration;
-    using infrastructure.extractors;
-    using infrastructure.logging;
-    using infrastructure.registration;
-    using infrastructure.synchronization;
-    using log4net;
-#if !NoResources
-    using resources;
-#endif
-    using Assembly = infrastructure.adapters.Assembly;
-    using IFileSystem = infrastructure.filesystem.IFileSystem;
-    using ILog = infrastructure.logging.ILog;
-
-    // ReSharper disable InconsistentNaming
-
     /// <summary>
     /// Entry point for API
     /// </summary>
@@ -47,60 +44,26 @@ namespace chocolatey
     {
         private static readonly log4net.ILog _logger = LogManager.GetLogger(typeof(Lets));
 
-        private static GetChocolatey set_up()
+        private static GetChocolatey Setup(bool initializeLogging)
         {
-            add_assembly_resolver();
+            AddAssemblyResolver();
 
-            return new GetChocolatey();
+            return new GetChocolatey(initializeLogging);
         }
 
         public static GetChocolatey GetChocolatey()
         {
-            return GlobalMutex.enter(() => set_up(), 10);
+            return GetChocolatey(initializeLogging: true);
         }
 
-        private static ResolveEventHandler _handler = null;
-        private static void add_assembly_resolver()
+        public static GetChocolatey GetChocolatey(bool initializeLogging)
         {
-            _handler = (sender, args) =>
-            {
-                var requestedAssembly = new AssemblyName(args.Name);
+            return GlobalMutex.Enter(() => Setup(initializeLogging), 10);
+        }
 
-                // There are things that are ILMerged into Chocolatey. Anything with
-                // the right public key except licensed should use the choco/chocolatey assembly
-#if FORCE_CHOCOLATEY_OFFICIAL_KEY
-                var chocolateyPublicKey = ApplicationParameters.OfficialChocolateyPublicKey;
-#else
-                var chocolateyPublicKey = ApplicationParameters.UnofficialChocolateyPublicKey;
-#endif
-                if (requestedAssembly.get_public_key_token().is_equal_to(chocolateyPublicKey)
-                    && !requestedAssembly.Name.is_equal_to(ApplicationParameters.LicensedChocolateyAssemblySimpleName)
-                    && !requestedAssembly.Name.EndsWith(".resources", StringComparison.OrdinalIgnoreCase))
-                {
-                    return typeof(Lets).Assembly;
-                }
-
-                try
-                {
-                    if (requestedAssembly.get_public_key_token().is_equal_to(chocolateyPublicKey)
-                        && requestedAssembly.Name.is_equal_to(ApplicationParameters.LicensedChocolateyAssemblySimpleName))
-                    {
-                        _logger.Debug("Resolving reference to chocolatey.licensed...");
-                        return AssemblyResolution.resolve_or_load_assembly(
-                            ApplicationParameters.LicensedChocolateyAssemblySimpleName,
-                            requestedAssembly.get_public_key_token(),
-                            ApplicationParameters.LicensedAssemblyLocation).UnderlyingType;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    "chocolatey".Log().Warn("Unable to load chocolatey.licensed assembly. {0}".format_with(ex.Message));
-                }
-
-                return null;
-            };
-
-            AppDomain.CurrentDomain.AssemblyResolve += _handler;
+        private static void AddAssemblyResolver()
+        {
+            AppDomain.CurrentDomain.AssemblyResolve += AssemblyResolution.ResolveExtensionOrMergedAssembly;
         }
     }
 
@@ -122,12 +85,24 @@ namespace chocolatey
         /// Initializes a new instance of the <see cref="GetChocolatey"/> class.
         /// </summary>
         public GetChocolatey()
+            : this(initializeLogging: true)
         {
-            Log4NetAppenderConfiguration.configure(null, excludeLoggerNames: ChocolateyLoggers.Trace.to_string());
-            Bootstrap.initialize();
-            Log.InitializeWith(new AggregateLog(new List<ILog>() { new Log4NetLog(), _logSinkLogger }));
-            _license = License.validate_license();
+        }
+
+        public GetChocolatey(bool initializeLogging)
+        {
             _container = SimpleInjectorContainer.Container;
+            if (initializeLogging)
+            {
+                var loggingLocation = ApplicationParameters.LoggingLocation;
+                var fileSystem = _container.GetInstance<IFileSystem>();
+                fileSystem.EnsureDirectoryExists(loggingLocation);
+
+                Log4NetAppenderConfiguration.Configure(loggingLocation, excludeLoggerNames: ChocolateyLoggers.Trace.ToStringSafe());
+                Log.InitializeWith(new AggregateLog(new List<ILog>() { new Log4NetLog(), _logSinkLogger }));
+                "chocolatey".Log().Debug("XmlConfiguration is now operational");
+            }
+            _license = License.ValidateLicense();
         }
 
         /// <summary>
@@ -137,14 +112,34 @@ namespace chocolatey
         /// <returns>This <see cref="GetChocolatey"/> instance</returns>
         public GetChocolatey SetCustomLogging(ILog logger)
         {
-            Log.InitializeWith(logger, resetLoggers: false);
-            drain_log_sink(logger);
+            return SetCustomLogging(logger, logExistingMessages: true, addToExistingLoggers: false);
+        }
+
+        public GetChocolatey SetCustomLogging(ILog logger, bool logExistingMessages)
+        {
+            return SetCustomLogging(logger, logExistingMessages, addToExistingLoggers: false);
+        }
+
+        public GetChocolatey SetCustomLogging(ILog logger, bool logExistingMessages, bool addToExistingLoggers)
+        {
+            var aggregateLog = new AggregateLog(new List<ILog> { logger });
+            if (addToExistingLoggers)
+            {
+                aggregateLog = new AggregateLog(new List<ILog> { logger, Log.GetLoggerFor("chocolatey") });
+            }
+
+            Log.InitializeWith(aggregateLog, resetLoggers: false);
+            if (logExistingMessages)
+            {
+                DrainLogSink(logger);
+            }
+
             return this;
         }
 
-        private void drain_log_sink(ILog logger)
+        private void DrainLogSink(ILog logger)
         {
-            foreach (var logMessage in _logSinkLogger.Messages.or_empty_list_if_null())
+            foreach (var logMessage in _logSinkLogger.Messages.OrEmpty())
             {
                 switch (logMessage.LogLevel)
                 {
@@ -239,7 +234,7 @@ namespace chocolatey
         /// Registers a container component. Does not require a dependency on Simple Injector.
         /// Will override existing component if registered.
         /// </summary>
-        /// <typeparam name="Service">The type of the ervice.</typeparam>
+        /// <typeparam name="Service">The type of the service.</typeparam>
         /// <param name="implementationCreator">The implementation creator.</param>
         /// <returns>This <see cref="GetChocolatey"/> instance</returns>
         /// <remarks>
@@ -296,18 +291,26 @@ namespace chocolatey
         /// </summary>
         public void Run()
         {
-            ensure_environment();
-            extract_resources();
+            EnsureEnvironment();
+            ExtractResources();
 
-            ensure_original_configuration(new List<string>(),
-                (config) =>
-                {
-                    var runner = new GenericRunner();
-                    runner.run(config, _container, isConsole: false, parseArgs: command =>
+            try
+            {
+                EnsureOriginalConfiguration(new List<string>(),
+                    (config) =>
                     {
-                        command.handle_validation(config);
+                        var runner = new GenericRunner();
+                        runner.Run(config, _container, isConsole: false, parseArgs: command =>
+                        {
+                            PreRunValidationChecks.Validate(command, config, _container);
+                        });
                     });
-                });
+            }
+            catch (Exception error)
+            {
+                "chocolatey".Log().Error(error.Message);
+                throw;
+            }
         }
 
         /// <summary>
@@ -323,14 +326,14 @@ namespace chocolatey
         /// <param name="args">Commandline arguments to add to configuration.</param>
         public void RunConsole(string[] args)
         {
-            ensure_environment();
-            extract_resources();
+            EnsureEnvironment();
+            ExtractResources();
 
-            ensure_original_configuration(new List<string>(args),
+            EnsureOriginalConfiguration(new List<string>(args),
               (config) =>
               {
                   var runner = new ConsoleApplication();
-                  runner.run(args, config, _container);
+                  runner.Run(args, config, _container);
               });
 
         }
@@ -348,15 +351,26 @@ namespace chocolatey
         /// <typeparam name="T">The typer of results you're expecting back.</typeparam>
         public IEnumerable<T> List<T>()
         {
-            ensure_environment();
-            extract_resources();
+            EnsureEnvironment();
+            ExtractResources();
 
-            return ensure_original_configuration(new List<string>(),
-                (config) =>
-                {
-                    var runner = new GenericRunner();
-                    return runner.list<T>(config, _container, isConsole: false, parseArgs: null);
-                });
+            try
+            {
+                return EnsureOriginalConfiguration(new List<string>(),
+                    (config) =>
+                    {
+                        var runner = new GenericRunner();
+                        return runner.List<T>(config, _container, isConsole: false, command =>
+                        {
+                            PreRunValidationChecks.Validate(command, config, _container);
+                        });
+                    });
+            }
+            catch (Exception error)
+            {
+                "chocolatey".Log().Error(error.Message);
+                throw;
+            }
         }
 
         /// <summary>
@@ -376,15 +390,26 @@ namespace chocolatey
         /// </remarks>
         public int ListCount()
         {
-            ensure_environment();
-            extract_resources();
+            EnsureEnvironment();
+            ExtractResources();
 
-            return ensure_original_configuration(new List<string>(),
-               (config) =>
-               {
-                   var runner = new GenericRunner();
-                   return runner.count(config, _container, isConsole: false, parseArgs: null);
-               });
+            try
+            {
+                return EnsureOriginalConfiguration(new List<string>(),
+                   (config) =>
+                   {
+                       var runner = new GenericRunner();
+                       return runner.Count(config, _container, isConsole: false, command =>
+                       {
+                           PreRunValidationChecks.Validate(command, config, _container);
+                       });
+                   });
+            }
+            catch (Exception error)
+            {
+                "chocolatey".Log().Error(error.Message);
+                throw;
+            }
         }
 
         /// <summary>
@@ -394,11 +419,11 @@ namespace chocolatey
         /// <remarks>Only call this once you have registered all container components with Chocolatey</remarks>
         public ChocolateyConfiguration GetConfiguration()
         {
-            ensure_environment();
-            
+            EnsureEnvironment();
+
             // ensure_original_configuration() already calls create_configuration()
             // so no need to repeat, just grab the result
-            var configuration = ensure_original_configuration(
+            var configuration = EnsureOriginalConfiguration(
                 new List<string>(),
                 (config) => config
             );
@@ -406,12 +431,16 @@ namespace chocolatey
             return configuration;
         }
 
-        private void ensure_original_configuration(IList<string> args, Action<ChocolateyConfiguration> action)
+        private void EnsureOriginalConfiguration(IList<string> args, Action<ChocolateyConfiguration> action)
         {
-            var success = ensure_original_configuration(args,
+            var success = EnsureOriginalConfiguration(args,
                 (config) =>
                 {
-                    if (action != null) action.Invoke(config);
+                    if (action != null)
+                    {
+                        action.Invoke(config);
+                    }
+
                     return true;
                 });
         }
@@ -426,10 +455,10 @@ namespace chocolatey
         /// <param name="args">The arguments.</param>
         /// <param name="function">The function.</param>
         /// <returns></returns>
-        private T ensure_original_configuration<T>(IList<string> args, Func<ChocolateyConfiguration, T> function)
+        private T EnsureOriginalConfiguration<T>(IList<string> args, Func<ChocolateyConfiguration, T> function)
         {
-            var originalConfig = Config.get_configuration_settings().deep_copy();
-            var configuration = create_configuration(args);
+            var originalConfig = Config.GetConfigurationSettings().DeepCopy();
+            var configuration = CreateConfiguration(args);
             var returnValue = default(T);
             try
             {
@@ -438,17 +467,28 @@ namespace chocolatey
                     returnValue = function.Invoke(configuration);
                 }
 
-                var verboseAppenderName = "{0}LoggingColoredConsoleAppender".format_with(ChocolateyLoggers.Verbose.to_string());
-                var traceAppenderName = "{0}LoggingColoredConsoleAppender".format_with(ChocolateyLoggers.Trace.to_string());
-                Log4NetAppenderConfiguration.set_logging_level_debug_when_debug(configuration.Debug, verboseAppenderName, traceAppenderName);
-                Log4NetAppenderConfiguration.set_verbose_logger_when_verbose(configuration.Verbose, configuration.Debug, verboseAppenderName);
-                Log4NetAppenderConfiguration.set_trace_logger_when_trace(configuration.Trace, traceAppenderName);
+                var verboseAppenderName = "{0}LoggingColoredConsoleAppender".FormatWith(ChocolateyLoggers.Verbose.ToStringSafe());
+                var traceAppenderName = "{0}LoggingColoredConsoleAppender".FormatWith(ChocolateyLoggers.Trace.ToStringSafe());
+                Log4NetAppenderConfiguration.EnableDebugLoggingIf(configuration.Debug, verboseAppenderName, traceAppenderName);
+                Log4NetAppenderConfiguration.EnableVerboseLoggingIf(configuration.Verbose, configuration.Debug, verboseAppenderName);
+
+                if (!configuration.Information.IsProcessElevated && configuration.Trace)
+                {
+                    var logger = ChocolateyLoggers.Normal;
+
+                    if (!configuration.RegularOutput)
+                    {
+                        logger = ChocolateyLoggers.LogFileOnly;
+                    }
+
+                    "chocolatey".Log().Warn(logger, "Usage of the --trace option is only allowed when running from an elevated session.");
+                }
             }
             finally
             {
                 // reset that configuration each time
                 configuration = originalConfig;
-                Config.initialize_with(originalConfig);
+                Config.InitializeWith(originalConfig);
             }
 
             return returnValue;
@@ -460,12 +500,12 @@ namespace chocolatey
         /// </summary>
         /// <param name="args">The arguments.</param>
         /// <returns>The configuration for Chocolatey</returns>
-        private ChocolateyConfiguration create_configuration(IList<string> args)
+        private ChocolateyConfiguration CreateConfiguration(IList<string> args)
         {
             // get or create a ChocolateyConfiguration. This maps directly
             // to the same thing that is loaded into the container
-            var configuration = Config.get_configuration_settings();
-            ConfigurationBuilder.set_up_configuration(
+            var configuration = Config.GetConfigurationSettings();
+            ConfigurationBuilder.SetupConfiguration(
                 args,
                 configuration,
                 _container,
@@ -483,27 +523,27 @@ namespace chocolatey
             return configuration;
         }
 
-        private void ensure_environment()
+        private void EnsureEnvironment()
         {
-            string chocolateyInstall = string.Empty;
+            var chocolateyInstall = string.Empty;
 
 #if !DEBUG
-            chocolateyInstall = Environment.GetEnvironmentVariable(ApplicationParameters.ChocolateyInstallEnvironmentVariableName, EnvironmentVariableTarget.Machine);
+            chocolateyInstall = Environment.GetEnvironmentVariable(EnvironmentVariables.System.ChocolateyInstall, EnvironmentVariableTarget.Machine);
             if (string.IsNullOrWhiteSpace(chocolateyInstall))
             {
-                chocolateyInstall = Environment.GetEnvironmentVariable(ApplicationParameters.ChocolateyInstallEnvironmentVariableName, EnvironmentVariableTarget.User);
+                chocolateyInstall = Environment.GetEnvironmentVariable(EnvironmentVariables.System.ChocolateyInstall, EnvironmentVariableTarget.User);
             }
 #endif
 
             if (string.IsNullOrWhiteSpace(chocolateyInstall))
             {
-                chocolateyInstall = Environment.GetEnvironmentVariable(ApplicationParameters.ChocolateyInstallEnvironmentVariableName);
+                chocolateyInstall = Environment.GetEnvironmentVariable(EnvironmentVariables.System.ChocolateyInstall);
             }
 
-            Environment.SetEnvironmentVariable(ApplicationParameters.ChocolateyInstallEnvironmentVariableName, chocolateyInstall);
+            Environment.SetEnvironmentVariable(EnvironmentVariables.System.ChocolateyInstall, chocolateyInstall);
         }
 
-        private void extract_resources()
+        private void ExtractResources()
         {
             //refactor - thank goodness this is temporary, cuz manifest resource streams are dumb
             IList<string> folders = new List<string>
@@ -514,19 +554,15 @@ namespace chocolatey
                 "tools"
             };
 
-#if !NoResources
             try
             {
-                AssemblyFileExtractor.extract_all_resources_to_relative_directory(_container.GetInstance<IFileSystem>(), Assembly.GetAssembly(typeof(ChocolateyResourcesAssembly)), ApplicationParameters.InstallLocation, folders, ApplicationParameters.ChocolateyFileResources);
+                AssemblyFileExtractor.ExtractAssemblyResourcesToRelativeDirectory(_container.GetInstance<IFileSystem>(), Assembly.GetAssembly(typeof(ChocolateyResourcesAssembly)), ApplicationParameters.InstallLocation, folders, ApplicationParameters.ChocolateyFileResources);
             }
             catch (Exception ex)
             {
-                this.Log().Warn(ChocolateyLoggers.Important, "Please ensure that ChocolateyInstall environment variable is set properly and you've run once as an administrator to ensure all resources are extracted.");
-                this.Log().Error("Unable to extract resources. Please ensure the ChocolateyInstall environment variable is set properly. You may need to run once as an admin to ensure all resources are extracted. Details:{0} {1}".format_with(Environment.NewLine, ex.ToString()));
+                this.Log().Warn(ChocolateyLoggers.Important, "Please ensure that {0} environment variable is set properly and you've run once as an administrator to ensure all resources are extracted.", EnvironmentVariables.System.ChocolateyInstall);
+                this.Log().Error("Unable to extract resources. Please ensure the {2} environment variable is set properly. You may need to run once as an admin to ensure all resources are extracted. Details:{0} {1}", Environment.NewLine, ex.ToString(), EnvironmentVariables.System.ChocolateyInstall);
             }
-#endif
         }
     }
-
-    // ReSharper restore InconsistentNaming
 }

@@ -1,4 +1,4 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,27 +14,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Text;
+using chocolatey.infrastructure.app.domain;
+using chocolatey.infrastructure.logging;
+using chocolatey.infrastructure.platforms;
+
 namespace chocolatey.infrastructure.app.configuration
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Reflection;
-    using System.Text;
-    using domain;
-    using logging;
-    using platforms;
-
     /// <summary>
     ///   The chocolatey configuration.
     /// </summary>
     [Serializable]
     public class ChocolateyConfiguration
     {
+        [NonSerialized]
+        private Stack<ChocolateyConfiguration> _configurationBackups;
+
         public ChocolateyConfiguration()
         {
             RegularOutput = true;
             PromptForConfirmation = true;
-            SourceType = SourceType.normal;
+            DisableCompatibilityChecks = false;
+            CacheExpirationInMinutes = 30;
+            SourceType = SourceTypes.Normal;
             Information = new InformationCommandConfiguration();
             Features = new FeaturesConfiguration();
             NewCommand = new NewCommandConfiguration();
@@ -48,11 +53,112 @@ namespace chocolatey.infrastructure.app.configuration
             PackCommand = new PackCommandConfiguration();
             PushCommand = new PushCommandConfiguration();
             PinCommand = new PinCommandConfiguration();
+            LicenseCommand = new LicenseCommandConfiguration();
             OutdatedCommand = new OutdatedCommandConfiguration();
             Proxy = new ProxyConfiguration();
+            ExportCommand = new ExportCommandConfiguration();
+            TemplateCommand = new TemplateCommandConfiguration();
+            CacheCommand = new CacheCommandConfiguration();
+            RuleCommand = new RuleCommandConfiguration();
+            IncludeHeaders = false;
+
 #if DEBUG
             AllowUnofficialBuild = true;
 #endif
+        }
+
+        /// <summary>
+        /// Creates a backup of the current version of the configuration class.
+        /// </summary>
+        /// <exception cref="System.Runtime.Serialization.SerializationException">One or more objects in the class or child classes are not serializable.</exception>
+        public void CreateBackup()
+        {
+            if (_configurationBackups == null)
+            {
+                _configurationBackups = new Stack<ChocolateyConfiguration>();
+            }
+
+            // We do this the easy way to ensure that we have a clean copy
+            // of the original configuration file.
+            _configurationBackups.Push(this.DeepCopy());
+        }
+
+        /// <summary>
+        /// Restore the backup that has previously been created to the initial
+        /// state, without making the class reference types the same to prevent
+        /// the initial configuration class being updated at the same time if a
+        /// value changes.
+        /// </summary>
+        /// <param name="removeBackup">Whether a backup that was previously made should be removed after resetting the configuration.</param>
+        /// <exception cref="InvalidOperationException">No backup has been created before trying to reset the current configuration, and removal of the backup was not requested.</exception>
+        /// <remarks>
+        /// This call may make quite a lot of allocations on the Gen0 heap, as such
+        /// it is best to keep the calls to this method at a minimum.
+        /// </remarks>
+        public void RevertChanges(bool removeBackup = false)
+        {
+            if (_configurationBackups == null || _configurationBackups.Count == 0)
+            {
+                if (removeBackup)
+                {
+                    // If we will also be removing the backup, we do not care if it is already
+                    // null or not, as that is the intended state when this method returns.
+                    this.Log().Debug("Requested removal of a configuration backup that does not exist: the backup stack is empty.");
+                    return;
+                }
+
+                throw new InvalidOperationException("No backup has been created before trying to reset the current configuration, and removal of the backup was not requested.");
+            }
+
+            // Runtime type lookup ensures this also fully works with derived classes (for example: licensed configuration)
+            // without needing to re-implement this method / make it overridable.
+            var t = GetType();
+
+            var backup = removeBackup ? _configurationBackups.Pop() : _configurationBackups.Peek();
+
+            foreach (var property in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (property.Name == "_configurationBackups")
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if (property.Name == "PromptForConfirmation")
+                    {
+                        // We do not overwrite this value between backups as it is intended to be a global setting;
+                        // if a user has selected a "[A]ll scripts" prompt interactively, this option is
+                        // set and should be retained for the duration of the operations.
+                        continue;
+                    }
+
+                    var originalValue = property.GetValue(backup, new object[0]);
+
+                    if (removeBackup || property.DeclaringType.IsPrimitive || property.DeclaringType.IsValueType || property.DeclaringType == typeof(string))
+                    {
+                        // If the property is a primitive, a value type or a string, then a copy of the value
+                        // will be created by the .NET Runtime automatically, and we do not need to create a deep clone of the value.
+                        // Additionally, if we will be removing the backup there is no need to create a deep copy
+                        // for any reference types. We won't have any duplicate references because the backup is being discarded.
+                        property.SetValue(this, originalValue, new object[0]);
+                    }
+                    else if (originalValue != null)
+                    {
+                        // We need to do a deep copy of the value so it won't copy the reference itself,
+                        // but rather the actual values we are interested in.
+                        property.SetValue(this, originalValue.DeepCopy(), new object[0]);
+                    }
+                    else
+                    {
+                        property.SetValue(this, null, new object[0]);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    throw new ApplicationException("Unable to restore the value for the property '{0}'.".FormatWith(property.Name), ex);
+                }
+            }
         }
 
         // overrides
@@ -64,68 +170,75 @@ namespace chocolatey.infrastructure.app.configuration
 NOTE: Hiding sensitive configuration data! Please double and triple
  check to be sure no sensitive data is shown, especially if copying
  output to a gist for review.");
-            output_tostring(properties, GetType().GetProperties(), this, "");
+            OutputToString(properties, GetType().GetProperties(), this, "");
             return properties.ToString();
-
         }
 
-        private void output_tostring(StringBuilder propertyValues, IEnumerable<PropertyInfo> properties, object obj, string prepend)
+        private void OutputToString(StringBuilder propertyValues, IEnumerable<PropertyInfo> properties, object obj, string prepend)
         {
-            foreach (var propertyInfo in properties.or_empty_list_if_null())
+            foreach (var propertyInfo in properties.OrEmpty())
             {
                 // skip sensitive data info
-                if (propertyInfo.Name.contains("password") || propertyInfo.Name.contains("sensitive") || propertyInfo.Name == "Key" || propertyInfo.Name == "ConfigValue" || propertyInfo.Name == "MachineSources")
+                if (propertyInfo.Name.ContainsSafe("password") || propertyInfo.Name.ContainsSafe("sensitive") || propertyInfo.Name == "Key" || propertyInfo.Name == "ConfigValue" || propertyInfo.Name == "MachineSources")
                 {
                     continue;
                 }
 
                 var objectValue = propertyInfo.GetValue(obj, null);
-                if (propertyInfo.PropertyType.is_built_in_system_type())
+                if (propertyInfo.PropertyType.IsBuiltinType())
                 {
-                    if (!string.IsNullOrWhiteSpace(objectValue.to_string()))
+                    if (!string.IsNullOrWhiteSpace(objectValue.ToStringSafe()))
                     {
-                        var output = "{0}{1}='{2}'|".format_with(
+                        var output = "{0}{1}='{2}'|".FormatWith(
                             string.IsNullOrWhiteSpace(prepend) ? "" : prepend + ".",
                             propertyInfo.Name,
-                            objectValue.to_string());
+                            objectValue.ToStringSafe());
 
-                        append_output(propertyValues, output);
+                        AppendOutput(propertyValues, output);
                     }
                 }
-                else if (propertyInfo.PropertyType.is_collections_type())
+                else if (propertyInfo.PropertyType.IsCollectionType())
                 {
                     var list = objectValue as IDictionary<string, string>;
-                    foreach (var item in list.or_empty_list_if_null())
+                    foreach (var item in list.OrEmpty())
                     {
-                        var output = "{0}{1}.{2}='{3}'|".format_with(
+                        var output = "{0}{1}.{2}='{3}'|".FormatWith(
                             string.IsNullOrWhiteSpace(prepend) ? "" : prepend + ".",
                             propertyInfo.Name,
                             item.Key,
                             item.Value);
 
-                        append_output(propertyValues, output);
+                        AppendOutput(propertyValues, output);
                     }
+                }
+                else if (objectValue is null)
+                {
+                    var output = "{0}{1}={{null}}".FormatWith(
+                        string.IsNullOrWhiteSpace(prepend) ? "" : prepend + ".",
+                        propertyInfo.Name);
+
+                    AppendOutput(propertyValues, output);
                 }
                 else
                 {
-                    output_tostring(propertyValues, propertyInfo.PropertyType.GetProperties(), objectValue, propertyInfo.Name);
+                    OutputToString(propertyValues, propertyInfo.PropertyType.GetProperties(), objectValue, propertyInfo.Name);
                 }
             }
         }
 
-        private const int MAX_CONSOLE_LINE_LENGTH = 72;
+        private const int MaxConsoleLineLength = 72;
         private int _currentLineLength = 0;
 
-        private void append_output(StringBuilder propertyValues, string append)
+        private void AppendOutput(StringBuilder propertyValues, string append)
         {
             _currentLineLength += append.Length;
 
             propertyValues.AppendFormat("{0}{1}{2}",
-                   _currentLineLength < MAX_CONSOLE_LINE_LENGTH ? string.Empty : Environment.NewLine,
+                   _currentLineLength < MaxConsoleLineLength ? string.Empty : Environment.NewLine,
                    append,
-                   append.Length < MAX_CONSOLE_LINE_LENGTH ? string.Empty : Environment.NewLine);
+                   append.Length < MaxConsoleLineLength ? string.Empty : Environment.NewLine);
 
-            if (_currentLineLength > MAX_CONSOLE_LINE_LENGTH)
+            if (_currentLineLength > MaxConsoleLineLength)
             {
                 _currentLineLength = append.Length;
             }
@@ -142,30 +255,41 @@ NOTE: Hiding sensitive configuration data! Please double and triple
 
         // configuration set variables
         public string CacheLocation { get; set; }
-        public bool ContainsLegacyPackageInstalls { get; set; }
+
         public int CommandExecutionTimeoutSeconds { get; set; }
         public int WebRequestTimeoutSeconds { get; set; }
+        public string DefaultTemplateName { get; set; }
 
         /// <summary>
         ///   One or more source locations set by configuration or by command line. Separated by semi-colon
         /// </summary>
         public string Sources { get; set; }
-        public SourceType SourceType { get; set; }
+
+        /// <summary>
+        /// One or more source locations set by comamnd line only. Semi-colon delimited.
+        /// <strong>Do not set this anywhere other than parsing CLI arguments for commands.</strong>
+        /// </summary>
+        public string ExplicitSources { get; set; }
+
+        public string SourceType { get; set; }
+        public bool IncludeConfiguredSources { get; set; }
 
         // top level commands
 
+        public bool ShowOnlineHelp { get; set; }
         public bool Debug { get; set; }
         public bool Verbose { get; set; }
         public bool Trace { get; set; }
         public bool Force { get; set; }
         public bool Noop { get; set; }
         public bool HelpRequested { get; set; }
+
         /// <summary>
         ///   Gets or sets a value indicating whether parsing was successful (everything parsed) or not.
         /// </summary>
         public bool UnsuccessfulParsing { get; set; }
 
-        // TODO: Should look into using mutually exclusive output levels - Debug, Info (Regular), Error (Quiet)
+        // todo: #2564 Should look into using mutually exclusive output levels - Debug, Info (Regular), Error (Quiet)
         // Verbose and Important are not part of the levels at all
         /// <summary>
         /// Gets or sets a value indicating whether output should be limited.
@@ -173,14 +297,26 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         /// </summary>
         /// <value><c>true</c> for regular output; <c>false</c> for limited output.</value>
         public bool RegularOutput { get; set; }
+
         /// <summary>
-        /// Gets or sets a value indicating whether console logging should be supressed.
+        /// Gets or sets a value indicating whether console logging should be suppressed.
         /// This is for use by API calls which surface results in alternate forms.
         /// </summary>
         /// <value><c>true</c> for no output; <c>false</c> for regular or limited output.</value>
         /// <remarks>This has only been implemented for NuGet List</remarks>
         public bool QuietOutput { get; set; }
+
         public bool PromptForConfirmation { get; set; }
+
+        /// <summary>
+        /// Gets or set a value indicating whether runtime Chocolatey compatibility checks
+        /// should be completed or not. Overriding this value is only expected on systems
+        /// where the user is explicitly opting out of these checks, for example, when
+        /// they are running a perpetual license, where the version is known to not be
+        /// compliant, but also that most things "should" work.
+        /// </summary>
+        public bool DisableCompatibilityChecks { get; set; }
+
         public bool AcceptLicense { get; set; }
         public bool AllowUnofficialBuild { get; set; }
         public string AdditionalLogFileLocation { get; set; }
@@ -192,9 +328,11 @@ NOTE: Hiding sensitive configuration data! Please double and triple
 
         // command level options
         public string Version { get; set; }
+
         public bool AllVersions { get; set; }
         public bool SkipPackageInstallProvider { get; set; }
         public string OutputDirectory { get; set; }
+        public bool SkipHookScripts { get; set; }
 
         // install/update
         /// <summary>
@@ -214,13 +352,25 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         public bool ApplyPackageParametersToDependencies { get; set; }
         public bool ApplyInstallArgumentsToDependencies { get; set; }
         public bool IgnoreDependencies { get; set; }
-        public bool AllowMultipleVersions { get; set; }
+        public bool UseHttpCache { get; set; }
+
+        /// <summary>
+        /// Gets or sets the time before the cache is considered to have expired in minutes.
+        /// </summary>
+        /// <value>
+        /// The cache expiration in minutes.
+        /// </value>
+        /// <remarks>specifying a negative number disables the caching completely.</remarks>
+        public int CacheExpirationInMinutes { get; set; }
+
         public bool AllowDowngrade { get; set; }
         public bool ForceDependencies { get; set; }
         public string DownloadChecksum { get; set; }
         public string DownloadChecksum64 { get; set; }
         public string DownloadChecksumType { get; set; }
         public string DownloadChecksumType64 { get; set; }
+        public bool PinPackage { get; set; }
+        public bool IncludeHeaders { get; set; }
 
         /// <summary>
         ///   Configuration values provided by choco.
@@ -228,7 +378,7 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         /// <remarks>
         ///   On .NET 4.0, get error CS0200 when private set - see http://stackoverflow.com/a/23809226/18475
         /// </remarks>
-        public InformationCommandConfiguration Information { get;  set; }
+        public InformationCommandConfiguration Information { get; set; }
 
         /// <summary>
         ///   Configuration related to features and whether they are enabled.
@@ -236,7 +386,7 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         /// <remarks>
         ///   On .NET 4.0, get error CS0200 when private set - see http://stackoverflow.com/a/23809226/18475
         /// </remarks>
-        public FeaturesConfiguration Features { get;  set; }
+        public FeaturesConfiguration Features { get; set; }
 
         /// <summary>
         ///   Configuration related specifically to List command
@@ -244,7 +394,7 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         /// <remarks>
         ///   On .NET 4.0, get error CS0200 when private set - see http://stackoverflow.com/a/23809226/18475
         /// </remarks>
-        public ListCommandConfiguration ListCommand { get;  set; }
+        public ListCommandConfiguration ListCommand { get; set; }
 
         /// <summary>
         ///   Configuration related specifically to Upgrade command
@@ -252,7 +402,7 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         /// <remarks>
         ///   On .NET 4.0, get error CS0200 when private set - see http://stackoverflow.com/a/23809226/18475
         /// </remarks>
-        public UpgradeCommandConfiguration UpgradeCommand { get;  set; }
+        public UpgradeCommandConfiguration UpgradeCommand { get; set; }
 
         /// <summary>
         ///   Configuration related specifically to New command
@@ -260,7 +410,7 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         /// <remarks>
         ///   On .NET 4.0, get error CS0200 when private set - see http://stackoverflow.com/a/23809226/18475
         /// </remarks>
-        public NewCommandConfiguration NewCommand { get;  set; }
+        public NewCommandConfiguration NewCommand { get; set; }
 
         /// <summary>
         ///   Configuration related specifically to Source command
@@ -268,7 +418,7 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         /// <remarks>
         ///   On .NET 4.0, get error CS0200 when private set - see http://stackoverflow.com/a/23809226/18475
         /// </remarks>
-        public SourcesCommandConfiguration SourceCommand { get;  set; }
+        public SourcesCommandConfiguration SourceCommand { get; set; }
 
         /// <summary>
         ///   Default Machine Sources Configuration
@@ -300,7 +450,7 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         /// <remarks>
         ///   On .NET 4.0, get error CS0200 when private set - see http://stackoverflow.com/a/23809226/18475
         /// </remarks>
-        public ApiKeyCommandConfiguration ApiKeyCommand { get;  set; }
+        public ApiKeyCommandConfiguration ApiKeyCommand { get; set; }
 
         /// <summary>
         ///   Configuration related specifically to the Pack command.
@@ -316,7 +466,7 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         /// <remarks>
         ///   On .NET 4.0, get error CS0200 when private set - see http://stackoverflow.com/a/23809226/18475
         /// </remarks>
-        public PushCommandConfiguration PushCommand { get;  set; }
+        public PushCommandConfiguration PushCommand { get; set; }
 
         /// <summary>
         /// Configuration related specifically to Pin command
@@ -327,12 +477,22 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         public PinCommandConfiguration PinCommand { get; set; }
 
         /// <summary>
+        /// Configuration related specifically to License command
+        /// </summary>
+        /// <remarks>
+        ///   On .NET 4.0, get error CS0200 when private set - see http://stackoverflow.com/a/23809226/18475
+        /// </remarks>
+        public LicenseCommandConfiguration LicenseCommand { get; set; }
+
+        /// <summary>
         /// Configuration related specifically to Outdated command
         /// </summary>
         /// <remarks>
         ///   On .NET 4.0, get error CS0200 when private set - see http://stackoverflow.com/a/23809226/18475
         /// </remarks>
         public OutdatedCommandConfiguration OutdatedCommand { get; set; }
+
+        public ExportCommandConfiguration ExportCommand { get; set; }
 
         /// <summary>
         /// Configuration related specifically to proxies.
@@ -341,13 +501,47 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         ///   On .NET 4.0, get error CS0200 when private set - see http://stackoverflow.com/a/23809226/18475
         /// </remarks>
         public ProxyConfiguration Proxy { get; set; }
+
+        /// <summary>
+        ///   Configuration related specifically to Template command
+        /// </summary>
+        /// <remarks>
+        ///   On .NET 4.0, get error CS0200 when private set - see http://stackoverflow.com/a/23809226/18475
+        /// </remarks>
+        public TemplateCommandConfiguration TemplateCommand { get; set; }
+
+        /// <summary>
+        /// Gets or sets the configuration related specifically to the Cache command.
+        /// </summary>
+        public CacheCommandConfiguration CacheCommand { get; set; }
+
+        /// <summary>
+        /// Gets or sets the configuration related specifically to the Rule command.
+        /// </summary>
+        public RuleCommandConfiguration RuleCommand { get; set; }
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public void start_backup()
+            => CreateBackup();
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public void reset_config(bool removeBackup = false)
+            => RevertChanges(removeBackup);
+#pragma warning restore IDE0022, IDE1006
     }
 
     [Serializable]
     public sealed class InformationCommandConfiguration
     {
+        public InformationCommandConfiguration()
+        {
+            EnvironmentVariables = new Dictionary<string, string>();
+        }
+
         // application set variables
         public PlatformType PlatformType { get; set; }
+
         public Version PlatformVersion { get; set; }
         public string PlatformName { get; set; }
         public string ChocolateyVersion { get; set; }
@@ -364,8 +558,18 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         public bool IsUserRemote { get; set; }
         public bool IsProcessElevated { get; set; }
         public bool IsLicensedVersion { get; set; }
+        public bool IsLicensedAssemblyLoaded { get; set; }
         public string LicenseType { get; set; }
         public string CurrentDirectory { get; set; }
+
+        /// <summary>
+        /// A collection of values that should be written out as environment variables
+        /// within the PowerShell execution that Chocolatey CLI creates. This allows
+        /// for passing information, such as the previous Chocolatey package version
+        /// during `choco upgrade` through to the method that writes the environment
+        /// variables into the PowerShell session.
+        /// </summary>
+        public Dictionary<string, string> EnvironmentVariables { get; set; }
     }
 
     [Serializable]
@@ -383,7 +587,7 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         public bool VirusCheck { get; set; }
         public bool FailOnInvalidOrMissingLicense { get; set; }
         public bool IgnoreInvalidOptionsSwitches { get; set; }
-        public bool UsePackageExitCodes { get; set; } 
+        public bool UsePackageExitCodes { get; set; }
         public bool UseEnhancedExitCodes { get; set; }
         public bool UseFipsCompliantChecksums { get; set; }
         public bool ShowNonElevatedWarnings { get; set; }
@@ -396,12 +600,10 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         public bool ExitOnRebootDetected { get; set; }
         public bool LogValidationResultsOnWarnings { get; set; }
         public bool UsePackageRepositoryOptimizations { get; set; }
-
-        //todo remove in 0.11.0
-        public bool ScriptsCheckLastExitCode { get; set; }
+        public bool UsePackageHashValidation { get; set; }
     }
 
-    //todo: retrofit other command configs this way
+    //todo: #2565 retrofit other command configs this way
 
     [Serializable]
     public sealed class ListCommandConfiguration
@@ -409,10 +611,12 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         public ListCommandConfiguration()
         {
             PageSize = 25;
+            OrderBy = PackageOrder.Id;
         }
 
         // list
         public bool LocalOnly { get; set; }
+
         public bool IdOnly { get; set; }
         public bool IncludeRegistryPrograms { get; set; }
         public int? Page { get; set; }
@@ -421,11 +625,36 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         public bool ByIdOnly { get; set; }
         public bool ByTagOnly { get; set; }
         public bool IdStartsWith { get; set; }
-        public bool OrderByPopularity { get; set; }
+        public bool IgnorePinned { get; set; }
+        public PackageOrder OrderBy { get; set; }
+
+        [Obsolete("This property is deprecated and will be removed in version 3.0. Use the 'OrderBy' property instead.")]
+        public bool OrderByPopularity
+        {
+            get
+            {
+                return OrderBy == PackageOrder.Popularity;
+            }
+            set
+            {
+                if (value)
+                {
+                    OrderBy = PackageOrder.Popularity;
+                }
+                else
+                {
+                    OrderBy = PackageOrder.Id;
+                }
+            }
+        }
+
         public bool ApprovedOnly { get; set; }
         public bool DownloadCacheAvailable { get; set; }
         public bool NotBroken { get; set; }
         public bool IncludeVersionOverrides { get; set; }
+        public bool ExplicitPageSize { get; set; }
+        [Obsolete("This property is deprecated and will be removed in v3. Check if the top-level ExplicitSources property is set instead.")]
+        public bool ExplicitSource { get; set; }
     }
 
     [Serializable]
@@ -436,6 +665,7 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         public bool NotifyOnlyAvailableUpgrades { get; set; }
         public string PackageNamesToSkip { get; set; }
         public bool ExcludePrerelease { get; set; }
+        public bool IgnorePinned { get; set; }
     }
 
     [Serializable]
@@ -506,6 +736,12 @@ NOTE: Hiding sensitive configuration data! Please double and triple
     }
 
     [Serializable]
+    public sealed class LicenseCommandConfiguration
+    {
+        public LicenseCommandType Command { get; set; }
+    }
+
+    [Serializable]
     public sealed class OutdatedCommandConfiguration
     {
         public bool IgnorePinned { get; set; }
@@ -515,7 +751,7 @@ NOTE: Hiding sensitive configuration data! Please double and triple
     public sealed class ApiKeyCommandConfiguration
     {
         public string Key { get; set; }
-        public bool Remove { get; set; }
+        public ApiKeyCommandType Command { get; set; }
     }
 
     [Serializable]
@@ -527,12 +763,14 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         }
 
         public IDictionary<string, string> Properties { get; private set; }
+        public bool PackThrowOnUnsupportedElements = true;
     }
 
     [Serializable]
     public sealed class PushCommandConfiguration
     {
         public string Key { get; set; }
+        public string DefaultSource { get; set; }
         //DisableBuffering?
     }
 
@@ -544,5 +782,54 @@ NOTE: Hiding sensitive configuration data! Please double and triple
         public string EncryptedPassword { get; set; }
         public string BypassList { get; set; }
         public bool BypassOnLocal { get; set; }
+    }
+
+    [Serializable]
+    public sealed class ExportCommandConfiguration
+    {
+        public bool IncludeVersionNumbers { get; set; }
+
+        public string OutputFilePath { get; set; }
+    }
+
+    [Serializable]
+    public sealed class TemplateCommandConfiguration
+    {
+        public TemplateCommandType Command { get; set; }
+        public string Name { get; set; }
+    }
+
+    [Serializable]
+    public sealed class CacheCommandConfiguration
+    {
+        /// <summary>
+        /// Gets or sets the type of the command that should be used when running the Cache command.
+        /// </summary>
+        /// <value>
+        /// The command type to use.
+        /// </value>
+        public CacheCommandType Command { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether only expired items in the cache should be removed.
+        /// </summary>
+        /// <value>
+        ///   <c>true</c> if only expired cache items should be removed; otherwise, <c>false</c>.
+        /// </value>
+        public bool RemoveExpiredItemsOnly { get; set; }
+    }
+
+    [Serializable]
+    public sealed class RuleCommandConfiguration
+    {
+        /// <summary>
+        /// Gets or sets the name or identifier of a rule the user wants to use for the command.
+        /// </summary>
+        public string Name { get; set; }
+
+        /// <summary>
+        /// Gets or sets the sub command to execute.
+        /// </summary>
+        public string Command { get; set; }
     }
 }

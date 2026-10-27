@@ -1,73 +1,61 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.IO;
+using chocolatey.infrastructure.filesystem;
+using NuGet.Configuration;
+using NuGet.Packaging;
+using NuGet.Packaging.Core;
+using NuGet.ProjectManagement;
+using NuGet.Versioning;
+
 namespace chocolatey.infrastructure.app.nuget
 {
-    using System.IO;
-    using NuGet;
-
-    // ReSharper disable InconsistentNaming
-
-    public sealed class ChocolateyPackagePathResolver : DefaultPackagePathResolver
+    public sealed class ChocolateyPackagePathResolver : PackagePathResolver
     {
-        private readonly IFileSystem _nugetFileSystem;
-        public bool UseSideBySidePaths { get; set; }
+        public string RootDirectory { get; set; }
+        private IFileSystem _filesystem;
 
-        public ChocolateyPackagePathResolver(IFileSystem nugetFileSystem, bool useSideBySidePaths)
-            : base(nugetFileSystem, useSideBySidePaths)
+        public ChocolateyPackagePathResolver(string rootDirectory, IFileSystem filesystem)
+             : base(rootDirectory, useSideBySidePaths: false)
         {
-            _nugetFileSystem = nugetFileSystem;
-            UseSideBySidePaths = useSideBySidePaths;
+            RootDirectory = rootDirectory;
+            _filesystem = filesystem;
         }
 
-        public override string GetInstallPath(IPackage package)
+        public override string GetInstallPath(PackageIdentity packageIdentity)
         {
-            var packageVersionPath = Path.Combine(_nugetFileSystem.Root, GetPackageDirectory(package.Id,package.Version,useVersionInPath:true));
-            if (_nugetFileSystem.DirectoryExists(packageVersionPath)) return packageVersionPath;
-
-
-            return Path.Combine(_nugetFileSystem.Root, GetPackageDirectory(package.Id, package.Version));
+            return GetInstallPath(packageIdentity.Id);
         }
 
-        public override string GetPackageDirectory(string packageId, SemanticVersion version)
+        public string GetInstallPath(string packageId)
         {
-            return GetPackageDirectory(packageId, version, UseSideBySidePaths);
+            return _filesystem.CombinePaths(RootDirectory, packageId);
         }
 
-        public string GetPackageDirectory(string packageId, SemanticVersion version, bool useVersionInPath)
+        [Obsolete("This overload will be removed in a future version.")]
+        public string GetInstallPath(string id, NuGetVersion version)
         {
-            string directory = packageId;
-            if (useVersionInPath)
-            {
-                directory += "." + version.to_string();
-            }
-
-            return directory;
+            return GetInstallPath(id);
         }
 
-        public override string GetPackageFileName(string packageId, SemanticVersion version)
+        public override string GetPackageFileName(PackageIdentity packageIdentity)
         {
-            string fileNameBase = packageId;
-            if (UseSideBySidePaths)
-            {
-                fileNameBase += "." + version.to_string();
-            }
-            return fileNameBase + Constants.PackageExtension;
+            return packageIdentity.Id + NuGetConstants.PackageExtension;
         }
     }
-
-    // ReSharper restore InconsistentNaming
 }

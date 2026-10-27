@@ -1,25 +1,26 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections;
+using chocolatey.infrastructure.app;
+using static chocolatey.StringResources;
+
 namespace chocolatey.infrastructure.adapters
 {
-    using System;
-    using System.Collections;
-    using app;
-
     public sealed class Environment : IEnvironment
     {
         public OperatingSystem OSVersion
@@ -37,7 +38,7 @@ namespace chocolatey.infrastructure.adapters
             get
             {
                 // ARM64 bit architecture has a x86-32 emulator, so return false
-                if (System.Environment.GetEnvironmentVariable(ApplicationParameters.Environment.ProcessorArchitecture).to_string().is_equal_to(ApplicationParameters.Environment.ARM64_PROCESSOR_ARCHITECTURE))
+                if (System.Environment.GetEnvironmentVariable(EnvironmentVariables.System.ProcessorArchitecture).ToStringSafe().IsEqualTo(ApplicationParameters.Environment.Arm64ProcessorArchitecture))
                 {
                     return false;
                 }
@@ -63,7 +64,10 @@ namespace chocolatey.infrastructure.adapters
 
         public string ExpandEnvironmentVariables(string name)
         {
-            if (string.IsNullOrWhiteSpace(name)) return name;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return name;
+            }
 
             return System.Environment.ExpandEnvironmentVariables(name);
         }

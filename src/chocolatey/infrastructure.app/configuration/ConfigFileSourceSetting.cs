@@ -1,4 +1,4 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,11 +14,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Xml.Serialization;
+
 namespace chocolatey.infrastructure.app.configuration
 {
-    using System;
-    using System.Xml.Serialization;
-
     /// <summary>
     ///   XML config file sources element
     /// </summary>
@@ -67,7 +67,7 @@ namespace chocolatey.infrastructure.app.configuration
                 return false;
             }
 
-            var item = (ConfigFileSourceSetting) obj;
+            var item = (ConfigFileSourceSetting)obj;
 
             return (Id == item.Id)
                 && (Value == item.Value)
@@ -84,18 +84,21 @@ namespace chocolatey.infrastructure.app.configuration
 
         public override int GetHashCode()
         {
-            return HashCode
-                .Of(Id)
-                .And(Value)
-                .And(Disabled)
-                .And(BypassProxy)
-                .And(AllowSelfService)
-                .And(VisibleToAdminsOnly)
-                .And(UserName)
-                .And(Password)
-                .And(Priority)
-                .And(Certificate)
-                .And(CertificatePassword);
+            var hash = new HashCode();
+
+            hash.Add(Id);
+            hash.Add(Value);
+            hash.Add(Disabled);
+            hash.Add(BypassProxy);
+            hash.Add(AllowSelfService);
+            hash.Add(VisibleToAdminsOnly);
+            hash.Add(UserName);
+            hash.Add(Password);
+            hash.Add(Priority);
+            hash.Add(Certificate);
+            hash.Add(CertificatePassword);
+
+            return hash.ToHashCode();
         }
     }
 }

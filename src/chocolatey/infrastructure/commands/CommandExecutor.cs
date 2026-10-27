@@ -1,60 +1,60 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using chocolatey.infrastructure.adapters;
+using chocolatey.infrastructure.filesystem;
+using chocolatey.infrastructure.logging;
+using chocolatey.infrastructure.platforms;
+using Process = chocolatey.infrastructure.adapters.Process;
+
 namespace chocolatey.infrastructure.commands
 {
-    using System;
-    using System.ComponentModel;
-    using System.Diagnostics;
-    using System.IO;
-    using adapters;
-    using filesystem;
-    using logging;
-    using platforms;
-    using Process = adapters.Process;
-
     public sealed class CommandExecutor : ICommandExecutor
     {
         public CommandExecutor(IFileSystem fileSystem)
         {
-            file_system_initializer = new Lazy<IFileSystem>(() => fileSystem);
+            _fileSystem = new Lazy<IFileSystem>(() => fileSystem);
         }
 
-        private static Lazy<IFileSystem> file_system_initializer = new Lazy<IFileSystem>(() => new DotNetFileSystem());
+        private static Lazy<IFileSystem> _fileSystem = new Lazy<IFileSystem>(() => new DotNetFileSystem());
 
-        private static IFileSystem file_system
+        private static IFileSystem FileSystem
         {
-            get { return file_system_initializer.Value; }
+            get { return _fileSystem.Value; }
         }
 
-        private static Func<IProcess> initialize_process = () => new Process();
+        private static Func<IProcess> _initializeProcess = () => new Process();
 
         [EditorBrowsable(EditorBrowsableState.Never)]
-        public static void initialize_with(Lazy<IFileSystem> file_system, Func<IProcess> process_initializer)
+        public static void InitializeWith(Lazy<IFileSystem> fileSystem, Func<IProcess> processInitializer)
         {
-            file_system_initializer = file_system;
-            initialize_process = process_initializer;
+            _fileSystem = fileSystem;
+            _initializeProcess = processInitializer;
         }
 
-        public int execute(string process, string arguments, int waitForExitInSeconds)
+        public int Execute(string process, string arguments, int waitForExitInSeconds)
         {
-            return execute(process, arguments, waitForExitInSeconds, file_system.get_directory_name(file_system.get_current_assembly_path()));
+            return Execute(process, arguments, waitForExitInSeconds, FileSystem.GetDirectoryName(FileSystem.GetCurrentAssemblyPath()));
         }
 
-        public int execute(
+        public int Execute(
             string process,
             string arguments,
             int waitForExitInSeconds,
@@ -63,10 +63,10 @@ namespace chocolatey.infrastructure.commands
             bool updateProcessPath = true
             )
         {
-            return execute(process,
+            return Execute(process,
                            arguments,
                            waitForExitInSeconds,
-                           file_system.get_directory_name(file_system.get_current_assembly_path()),
+                           FileSystem.GetDirectoryName(FileSystem.GetCurrentAssemblyPath()),
                            stdOutAction,
                            stdErrAction,
                            updateProcessPath,
@@ -74,12 +74,12 @@ namespace chocolatey.infrastructure.commands
                 );
         }
 
-        public int execute(string process, string arguments, int waitForExitInSeconds, string workingDirectory)
+        public int Execute(string process, string arguments, int waitForExitInSeconds, string workingDirectory)
         {
-            return execute(process, arguments, waitForExitInSeconds, workingDirectory, null, null, updateProcessPath: true, allowUseWindow: false);
+            return Execute(process, arguments, waitForExitInSeconds, workingDirectory, null, null, updateProcessPath: true, allowUseWindow: false);
         }
 
-        public int execute(string process,
+        public int Execute(string process,
                                   string arguments,
                                   int waitForExitInSeconds,
                                   string workingDirectory,
@@ -89,52 +89,7 @@ namespace chocolatey.infrastructure.commands
                                   bool allowUseWindow
             )
         {
-            return execute(process,
-                          arguments,
-                          waitForExitInSeconds,
-                          workingDirectory,
-                          stdOutAction,
-                          stdErrAction,
-                          updateProcessPath,
-                          allowUseWindow,
-                          waitForExit:true
-               );
-        }
-
-        public int execute(string process,
-                                  string arguments,
-                                  int waitForExitInSeconds,
-                                  string workingDirectory,
-                                  Action<object, DataReceivedEventArgs> stdOutAction,
-                                  Action<object, DataReceivedEventArgs> stdErrAction,
-                                  bool updateProcessPath,
-                                  bool allowUseWindow,
-                                  bool waitForExit
-            )
-        {
-            return execute_static(process,
-                          arguments,
-                          waitForExitInSeconds,
-                          workingDirectory,
-                          stdOutAction,
-                          stdErrAction,
-                          updateProcessPath,
-                          allowUseWindow, 
-                          waitForExit
-               );
-        }
-
-        public static int execute_static(string process,
-                                  string arguments,
-                                  int waitForExitInSeconds,
-                                  string workingDirectory,
-                                  Action<object, DataReceivedEventArgs> stdOutAction,
-                                  Action<object, DataReceivedEventArgs> stdErrAction,
-                                  bool updateProcessPath,
-                                  bool allowUseWindow
-           )
-        {
-            return execute_static(process,
+            return Execute(process,
                           arguments,
                           waitForExitInSeconds,
                           workingDirectory,
@@ -146,7 +101,7 @@ namespace chocolatey.infrastructure.commands
                );
         }
 
-        public static int execute_static(string process,
+        public int Execute(string process,
                                   string arguments,
                                   int waitForExitInSeconds,
                                   string workingDirectory,
@@ -157,13 +112,58 @@ namespace chocolatey.infrastructure.commands
                                   bool waitForExit
             )
         {
-            int exitCode = -1;
+            return ExecuteStatic(process,
+                          arguments,
+                          waitForExitInSeconds,
+                          workingDirectory,
+                          stdOutAction,
+                          stdErrAction,
+                          updateProcessPath,
+                          allowUseWindow,
+                          waitForExit
+               );
+        }
+
+        public static int ExecuteStatic(string process,
+                                  string arguments,
+                                  int waitForExitInSeconds,
+                                  string workingDirectory,
+                                  Action<object, DataReceivedEventArgs> stdOutAction,
+                                  Action<object, DataReceivedEventArgs> stdErrAction,
+                                  bool updateProcessPath,
+                                  bool allowUseWindow
+           )
+        {
+            return ExecuteStatic(process,
+                          arguments,
+                          waitForExitInSeconds,
+                          workingDirectory,
+                          stdOutAction,
+                          stdErrAction,
+                          updateProcessPath,
+                          allowUseWindow,
+                          waitForExit: true
+               );
+        }
+
+        public static int ExecuteStatic(string process,
+                                  string arguments,
+                                  int waitForExitInSeconds,
+                                  string workingDirectory,
+                                  Action<object, DataReceivedEventArgs> stdOutAction,
+                                  Action<object, DataReceivedEventArgs> stdErrAction,
+                                  bool updateProcessPath,
+                                  bool allowUseWindow,
+                                  bool waitForExit
+            )
+        {
+            var exitCode = -1;
             if (updateProcessPath)
             {
-                process = file_system.get_full_path(process);
+                process = FileSystem.GetFullPath(process);
             }
 
-            if (Platform.get_platform() != PlatformType.Windows)
+            if (Platform.GetPlatform() != PlatformType.Windows)
             {
                 arguments = process + " " + arguments;
                 process = "mono";
@@ -171,27 +171,27 @@ namespace chocolatey.infrastructure.commands
 
             if (string.IsNullOrWhiteSpace(workingDirectory))
             {
-                workingDirectory = file_system.get_directory_name(file_system.get_current_assembly_path());
+                workingDirectory = FileSystem.GetDirectoryName(FileSystem.GetCurrentAssemblyPath());
             }
 
-            "chocolatey".Log().Debug(() => "Calling command ['\"{0}\" {1}']".format_with(process.escape_curly_braces(), arguments.escape_curly_braces()));
+            "chocolatey".Log().Debug(() => "Calling command ['\"{0}\" {1}']".FormatWith(process.EscapeCurlyBraces(), arguments.EscapeCurlyBraces()));
 
-            var psi = new ProcessStartInfo(process.remove_surrounding_quotes(), arguments)
-                {
-                    UseShellExecute = false,
-                    WorkingDirectory = workingDirectory,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = !allowUseWindow,
-                    WindowStyle = ProcessWindowStyle.Minimized,
-                };
+            var psi = new ProcessStartInfo(process.UnquoteSafe(), arguments)
+            {
+                UseShellExecute = false,
+                WorkingDirectory = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = !allowUseWindow,
+                WindowStyle = ProcessWindowStyle.Minimized,
+            };
 
-            using (var p = initialize_process())
+            using (var p = _initializeProcess())
             {
                 p.StartInfo = psi;
                 if (stdOutAction == null)
                 {
-                    p.OutputDataReceived += log_output;
+                    p.OutputDataReceived += LogOutput;
                 }
                 else
                 {
@@ -199,7 +199,7 @@ namespace chocolatey.infrastructure.commands
                 }
                 if (stdErrAction == null)
                 {
-                    p.ErrorDataReceived += log_error;
+                    p.ErrorDataReceived += LogError;
                 }
                 else
                 {
@@ -222,9 +222,9 @@ namespace chocolatey.infrastructure.commands
                         }
                         else
                         {
-                            "chocolatey".Log().Warn(ChocolateyLoggers.Important, () => @"Chocolatey timed out waiting for the command to finish. The timeout 
- specified (or the default value) was '{0}' seconds. Perhaps try a 
- higher `--execution-timeout`? See `choco -h` for details.".format_with(waitForExitInSeconds));
+                            "chocolatey".Log().Warn(ChocolateyLoggers.Important, () => @"Chocolatey timed out waiting for the command to finish. The timeout
+ specified (or the default value) was '{0}' seconds. Perhaps try a
+ higher `--execution-timeout`? See `choco --help` for details.".FormatWith(waitForExitInSeconds));
                         }
                     }
                     else
@@ -239,18 +239,104 @@ namespace chocolatey.infrastructure.commands
                 }
             }
 
-            "chocolatey".Log().Debug(() => "Command ['\"{0}\" {1}'] exited with '{2}'".format_with(process.escape_curly_braces(), arguments.escape_curly_braces(), exitCode));
+            "chocolatey".Log().Debug(() => "Command ['\"{0}\" {1}'] exited with '{2}'".FormatWith(process.EscapeCurlyBraces(), arguments.EscapeCurlyBraces(), exitCode));
             return exitCode;
         }
 
-        private static void log_output(object sender, DataReceivedEventArgs e)
+        private static void LogOutput(object sender, DataReceivedEventArgs e)
         {
-            if (e != null) "chocolatey".Log().Info(e.Data.escape_curly_braces());
+            if (e != null)
+            {
+                "chocolatey".Log().Info(e.Data.EscapeCurlyBraces());
+            }
         }
 
-        private static void log_error(object sender, DataReceivedEventArgs e)
+        private static void LogError(object sender, DataReceivedEventArgs e)
         {
-            if (e != null) "chocolatey".Log().Error(e.Data.escape_curly_braces());
+            if (e != null)
+            {
+                "chocolatey".Log().Error(e.Data.EscapeCurlyBraces());
+            }
         }
+
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public static void initialize_with(Lazy<IFileSystem> file_system, Func<IProcess> process_initializer)
+            => InitializeWith(file_system, process_initializer);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public int execute(string process, string arguments, int waitForExitInSeconds)
+            => Execute(process, arguments, waitForExitInSeconds);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public int execute(
+            string process,
+            string arguments,
+            int waitForExitInSeconds,
+            Action<object, DataReceivedEventArgs> stdOutAction,
+            Action<object, DataReceivedEventArgs> stdErrAction,
+            bool updateProcessPath = true)
+            => Execute(process, arguments, waitForExitInSeconds, stdOutAction, stdErrAction, updateProcessPath);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public int execute(string process, string arguments, int waitForExitInSeconds, string workingDirectory)
+            => Execute(process, arguments, waitForExitInSeconds, workingDirectory);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public int execute(string process,
+                                  string arguments,
+                                  int waitForExitInSeconds,
+                                  string workingDirectory,
+                                  Action<object, DataReceivedEventArgs> stdOutAction,
+                                  Action<object, DataReceivedEventArgs> stdErrAction,
+                                  bool updateProcessPath,
+                                  bool allowUseWindow)
+            => Execute(process, arguments, waitForExitInSeconds, workingDirectory, stdOutAction, stdErrAction, updateProcessPath, allowUseWindow);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public int execute(string process,
+                                  string arguments,
+                                  int waitForExitInSeconds,
+                                  string workingDirectory,
+                                  Action<object, DataReceivedEventArgs> stdOutAction,
+                                  Action<object, DataReceivedEventArgs> stdErrAction,
+                                  bool updateProcessPath,
+                                  bool allowUseWindow,
+                                  bool waitForExit)
+            => Execute(process, arguments, waitForExitInSeconds, workingDirectory, stdOutAction, stdErrAction, updateProcessPath, allowUseWindow, waitForExit);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public static int execute_static(string process,
+                                  string arguments,
+                                  int waitForExitInSeconds,
+                                  string workingDirectory,
+                                  Action<object, DataReceivedEventArgs> stdOutAction,
+                                  Action<object, DataReceivedEventArgs> stdErrAction,
+                                  bool updateProcessPath,
+                                  bool allowUseWindow)
+            => ExecuteStatic(process, arguments, waitForExitInSeconds, workingDirectory, stdOutAction, stdErrAction, updateProcessPath, allowUseWindow);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public static int execute_static(string process,
+                                  string arguments,
+                                  int waitForExitInSeconds,
+                                  string workingDirectory,
+                                  Action<object, DataReceivedEventArgs> stdOutAction,
+                                  Action<object, DataReceivedEventArgs> stdErrAction,
+                                  bool updateProcessPath,
+                                  bool allowUseWindow,
+                                  bool waitForExit)
+            => ExecuteStatic(process, arguments, waitForExitInSeconds, workingDirectory, stdOutAction, stdErrAction, updateProcessPath, allowUseWindow, waitForExit);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        private static void log_output(object sender, DataReceivedEventArgs e)
+            => LogOutput(sender, e);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        private static void log_error(object sender, DataReceivedEventArgs e)
+            => LogError(sender, e);
+#pragma warning restore IDE0022, IDE1006
     }
 }

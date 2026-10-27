@@ -1,45 +1,45 @@
-// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
+using chocolatey.infrastructure.adapters;
+using chocolatey.infrastructure.app;
+using chocolatey.infrastructure.filesystem;
+using Environment = System.Environment;
+using HashAlgorithm = chocolatey.infrastructure.adapters.HashAlgorithm;
+
 namespace chocolatey.infrastructure.cryptography
 {
-    using System;
-    using System.IO;
-    using System.Runtime.InteropServices;
-    using System.Security.Cryptography;
-    using System.Text;
-    using adapters;
-    using app;
-    using filesystem;
-    using Environment = System.Environment;
-    using HashAlgorithm = adapters.HashAlgorithm;
-
-    public sealed class CryptoHashProvider : IHashProvider
+    public class CryptoHashProvider : IHashProvider
     {
         private readonly IFileSystem _fileSystem;
         private IHashAlgorithm _hashAlgorithm;
-        private const int ERROR_LOCK_VIOLATION = 33;
-        private const int ERROR_SHARING_VIOLATION = 32;
+        private const int ErrorLockViolation = 33;
+        private const int ErrorSharingViolation = 32;
 
-        public void set_hash_algorithm(CryptoHashProviderType algorithmType)
+        public void SetHashAlgorithm(CryptoHashProviderType algorithmType)
         {
-            _hashAlgorithm = get_hash_algorithm_static(algorithmType);
+            _hashAlgorithm = GetHashAlgorithmStatic(algorithmType);
         }
 
-        private static IHashAlgorithm get_hash_algorithm_static(CryptoHashProviderType algorithmType)
+        private static IHashAlgorithm GetHashAlgorithmStatic(CryptoHashProviderType algorithmType)
         {
 
             var fipsOnly = false;
@@ -49,7 +49,7 @@ namespace chocolatey.infrastructure.cryptography
             }
             catch (Exception ex)
             {
-                "chocolatey".Log().Debug("Unable to get FipsPolicy from CryptoConfig:{0} {1}".format_with(Environment.NewLine, ex.Message));
+                "chocolatey".Log().Debug("Unable to get FipsPolicy from CryptoConfig:{0} {1}".FormatWith(Environment.NewLine, ex.Message));
             }
 
             HashAlgorithm hashAlgorithm = null;
@@ -75,7 +75,7 @@ namespace chocolatey.infrastructure.cryptography
         public CryptoHashProvider(IFileSystem fileSystem)
         {
             _fileSystem = fileSystem;
-            set_hash_algorithm(CryptoHashProviderType.Sha256);
+            SetHashAlgorithm(CryptoHashProviderType.Sha256);
         }
 
         public CryptoHashProvider(IFileSystem fileSystem, IHashAlgorithm hashAlgorithm)
@@ -84,45 +84,50 @@ namespace chocolatey.infrastructure.cryptography
             _hashAlgorithm = hashAlgorithm;
         }
 
-        public string hash_file(string filePath)
+        public string ComputeFileHash(string filePath)
         {
-            if (!_fileSystem.file_exists(filePath)) return string.Empty;
+            if (!_fileSystem.FileExists(filePath))
+            {
+                return string.Empty;
+            }
 
             try
             {
-                var hash = _hashAlgorithm.ComputeHash(_fileSystem.read_file_bytes(filePath));
-
-                return BitConverter.ToString(hash).Replace("-", string.Empty);
+                using (var fileStream = _fileSystem.OpenFileReadonly(filePath))
+                {
+                    var hash = _hashAlgorithm.ComputeHash(fileStream);
+                    return BitConverter.ToString(hash).Replace("-", string.Empty);
+                }
             }
             catch (IOException ex)
             {
-                this.Log().Warn(() => "Error computing hash for '{0}'{1} Hash will be special code for locked file or file too big instead.{1} Captured error:{1}  {2}".format_with(filePath, Environment.NewLine, ex.Message));
+                this.Log().Warn(() => "Error computing hash for '{0}'{1} Hash will be special code for locked file {1} Captured error:{1}  {2}".FormatWith(filePath, Environment.NewLine, ex.Message));
 
-                if (file_is_locked(ex))
+                if (IsFileLocked(ex))
                 {
                     return ApplicationParameters.HashProviderFileLocked;
                 }
 
-                //IO.IO_FileTooLong2GB (over Int32.MaxValue)
-                return ApplicationParameters.HashProviderFileTooBig;
+                //Rethrow if file is not locked
+                throw;
             }
         }
 
-        public string hash_byte_array(byte[] buffer)
-        {                
+        public string ComputeByteArrayHash(byte[] buffer)
+        {
             var hash = _hashAlgorithm.ComputeHash(buffer);
 
             return BitConverter.ToString(hash).Replace("-", string.Empty);
         }
 
-        public string hash_stream(Stream inputStream)
-        {                
+        public string ComputeStreamHash(Stream inputStream)
+        {
             var hash = _hashAlgorithm.ComputeHash(inputStream);
 
             return BitConverter.ToString(hash).Replace("-", string.Empty);
         }
 
-        private static bool file_is_locked(Exception exception)
+        private static bool IsFileLocked(Exception exception)
         {
             var errorCode = 0;
 
@@ -130,18 +135,49 @@ namespace chocolatey.infrastructure.cryptography
 
             errorCode = hresult & ((1 << 16) - 1);
 
-            return errorCode == ERROR_SHARING_VIOLATION || errorCode == ERROR_LOCK_VIOLATION;
+            return errorCode == ErrorSharingViolation || errorCode == ErrorLockViolation;
         }
-        
-        public static string hash_value(string originalText, CryptoHashProviderType providerType)
+
+        public static string ComputeStringHash(string originalText, CryptoHashProviderType providerType)
         {
+            IHashAlgorithm hashAlgorithm = GetHashAlgorithmStatic(providerType);
+            if (hashAlgorithm == null)
+            {
+                return string.Empty;
+            }
 
-            IHashAlgorithm hashAlgorithm = get_hash_algorithm_static(providerType);
-            if (hashAlgorithm == null) return string.Empty;
-
-             var hash = hashAlgorithm.ComputeHash(Encoding.ASCII.GetBytes(originalText));
-             return BitConverter.ToString(hash).Replace("-", string.Empty);
+            var hash = hashAlgorithm.ComputeHash(Encoding.ASCII.GetBytes(originalText));
+            return BitConverter.ToString(hash).Replace("-", string.Empty);
         }
 
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public void set_hash_algorithm(CryptoHashProviderType algorithmType)
+            => SetHashAlgorithm(algorithmType);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        private static IHashAlgorithm get_hash_algorithm_static(CryptoHashProviderType algorithmType)
+            => GetHashAlgorithmStatic(algorithmType);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public string hash_file(string filePath)
+            => ComputeFileHash(filePath);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public string hash_byte_array(byte[] buffer)
+            => ComputeByteArrayHash(buffer);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public string hash_stream(Stream inputStream)
+            => ComputeStreamHash(inputStream);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        private static bool file_is_locked(Exception exception)
+            => IsFileLocked(exception);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public static string hash_value(string originalText, CryptoHashProviderType providerType)
+            => ComputeStringHash(originalText, providerType);
+#pragma warning restore IDE0022, IDE1006
     }
 }

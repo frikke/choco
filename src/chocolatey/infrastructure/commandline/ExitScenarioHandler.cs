@@ -1,26 +1,26 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Runtime.InteropServices;
+using chocolatey.infrastructure.logging;
+using chocolatey.infrastructure.platforms;
+
 namespace chocolatey.infrastructure.commandline
 {
-    using System;
-    using System.Runtime.InteropServices;
-    using logging;
-    using platforms;
-
     /// <summary>
     ///   Detect abnormal exit signals and log them
     /// </summary>
@@ -48,7 +48,10 @@ namespace chocolatey.infrastructure.commandline
 
         public static void SetHandler()
         {
-            if (Platform.get_platform() != PlatformType.Windows) return;
+            if (Platform.GetPlatform() != PlatformType.Windows)
+            {
+                return;
+            }
 
             _handler += Handler;
             SetConsoleCtrlHandler(_handler, true);
@@ -56,7 +59,7 @@ namespace chocolatey.infrastructure.commandline
 
         private static bool Handler(SignalControlType signal)
         {
-            const string errorMessage = @"Exiting chocolatey abnormally. Please manually clean up anything that 
+            const string errorMessage = @"Exiting chocolatey abnormally. Please manually clean up anything that
  was not finished.";
             switch (signal)
             {

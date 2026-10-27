@@ -1,33 +1,34 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using static chocolatey.StringResources;
+
 namespace chocolatey.infrastructure.app.templates
 {
-    using System;
-    using System.Collections.Generic;
-
     public class TemplateValues
     {
         public TemplateValues()
         {
-            set_normal();
+            SetNormal();
             AdditionalProperties = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
         }
 
-        public void set_normal()
+        public void SetNormal()
         {
             PackageName = "__NAME_REPLACE__";
             PackageVersion = "__REPLACE__";
@@ -37,7 +38,7 @@ namespace chocolatey.infrastructure.app.templates
             InstallerType = "EXE_MSI_OR_MSU";
             Url = "";
             Url64 = "";
-            SilentArgs = @"/qn /norestart /l*v `""$($env:TEMP)\$($packageName).$($env:chocolateyPackageVersion).MsiInstall.log`""";
+            SilentArgs = $@"/qn /norestart /l*v `""$($env:{EnvironmentVariables.System.Temp})\$($packageName).$($env:{EnvironmentVariables.Package.ChocolateyPackageVersion}).MsiInstall.log`""";
             AutomaticPackageNotesNuspec = "";
             Checksum = "";
             ChecksumType = "sha256";
@@ -45,7 +46,7 @@ namespace chocolatey.infrastructure.app.templates
             ChecksumType64 = "sha256";
         }
 
-        public void set_auto()
+        public void SetAutomatic()
         {
             PackageName = "{{PackageName}}";
             PackageVersion = "{{PackageVersion}}";
@@ -63,7 +64,7 @@ namespace chocolatey.infrastructure.app.templates
 
         public string PackageNameLower
         {
-            get { return PackageName.to_lower(); }
+            get { return PackageName.ToLowerSafe(); }
         }
 
         public string PackageVersion { get; set; }
@@ -84,5 +85,15 @@ namespace chocolatey.infrastructure.app.templates
         public static readonly string NamePropertyName = "PackageName";
         public static readonly string VersionPropertyName = "PackageVersion";
         public static readonly string MaintainerPropertyName = "MaintainerName";
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public void set_normal()
+            => SetNormal();
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public void set_auto()
+            => SetAutomatic();
+#pragma warning restore IDE0022, IDE1006
     }
 }

@@ -1,4 +1,4 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,49 +14,53 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Linq;
+using System.Collections.Generic;
+using chocolatey.infrastructure.app.services;
+using chocolatey.infrastructure.app.events;
+using chocolatey.infrastructure.filesystem;
+using chocolatey.infrastructure.events;
+using chocolatey.infrastructure.registration;
+using chocolatey.infrastructure.tasks;
+using SimpleInjector;
+using chocolatey.infrastructure.adapters;
+using chocolatey.infrastructure.app.attributes;
+using chocolatey.infrastructure.commandline;
+using chocolatey.infrastructure.app.configuration;
+using chocolatey.infrastructure.app.domain;
+using chocolatey.infrastructure.commands;
+using chocolatey.infrastructure.configuration;
+using chocolatey.infrastructure.logging;
+using Console = System.Console;
+using Environment = System.Environment;
+
 namespace chocolatey.infrastructure.app.runners
 {
-    using System;
-    using System.Linq;
-    using System.Collections.Generic;
-    using events;
-    using filesystem;
-    using infrastructure.events;
-    using infrastructure.registration;
-    using infrastructure.tasks;
-    using SimpleInjector;
-    using adapters;
-    using attributes;
-    using commandline;
-    using configuration;
-    using domain;
-    using infrastructure.commands;
-    using infrastructure.configuration;
-    using logging;
-    using Console = System.Console;
-    using Environment = System.Environment;
-
     public sealed class GenericRunner
     {
-        private ICommand find_command(ChocolateyConfiguration config, Container container, bool isConsole, Action<ICommand> parseArgs)
+        private ICommand FindCommand(ChocolateyConfiguration config, Container container, bool isConsole, Action<ICommand> parseArgs)
         {
             var commands = container.GetAllInstances<ICommand>();
             var command = commands.Where((c) =>
                 {
                     var attributes = c.GetType().GetCustomAttributes(typeof(CommandForAttribute), false);
-                    return attributes.Cast<CommandForAttribute>().Any(attribute => attribute.CommandName.is_equal_to(config.CommandName));
+                    return attributes.Cast<CommandForAttribute>().Any(attribute => attribute.CommandName.IsEqualTo(config.CommandName));
                 }).FirstOrDefault();
 
             if (command == null)
             {
-                //todo add a search among other location/extensions for the command
+                //todo: #2581 add a search among other location/extensions for the command
                 if (!string.IsNullOrWhiteSpace(config.CommandName))
                 {
                     throw new Exception(@"Could not find a command registered that meets '{0}'.
- Try choco -? for command reference/help.".format_with(config.CommandName));
+ Try choco --help for command reference/help.".FormatWith(config.CommandName));
                 }
 
-                if (isConsole) Environment.ExitCode = 1;
+                if (isConsole)
+                {
+                    Environment.ExitCode = 1;
+                }
             }
             else
             {
@@ -65,17 +69,18 @@ namespace chocolatey.infrastructure.app.runners
                     parseArgs.Invoke(command);
                 }
 
-                if (command.may_require_admin_access())
+                if (command.MayRequireAdminAccess())
                 {
-                    warn_when_admin_needs_elevation(config);
+                    WarnIfAdminAndNeedsElevation(config);
                 }
 
-                set_source_type(config);
+                SetSourceType(config, container);
+                IncludeConfiguredSources(config);
+
                 // guaranteed that all settings are set.
-                EnvironmentSettings.set_environment_variables(config);
+                EnvironmentSettings.SetEnvironmentVariables(config);
 
-                this.Log().Debug(() => "Configuration: {0}".format_with(config.ToString()));
-
+                this.Log().Debug(() => "Configuration: {0}".FormatWith(config.ToString()));
 
                 if (isConsole && (config.HelpRequested || config.UnsuccessfulParsing))
                 {
@@ -83,18 +88,18 @@ namespace chocolatey.infrastructure.app.runners
                     Console.WriteLine("Press enter to continue...");
                     Console.ReadKey();
 #endif
-                    Environment.Exit(config.UnsuccessfulParsing? 1 : 0);
+                    Environment.Exit(config.UnsuccessfulParsing ? 1 : 0);
                 }
 
-                var token = Assembly.GetExecutingAssembly().get_public_key_token();
-                if (string.IsNullOrWhiteSpace(token) || !token.is_equal_to(ApplicationParameters.OfficialChocolateyPublicKey))
+                var token = Assembly.GetExecutingAssembly().GetPublicKeyToken();
+                if (string.IsNullOrWhiteSpace(token) || !token.IsEqualTo(ApplicationParameters.OfficialChocolateyPublicKey))
                 {
                     if (!config.AllowUnofficialBuild)
                     {
                         throw new Exception(@"
 Custom unofficial builds are not allowed by default.
  To override this behavior, explicitly set --allow-unofficial.
- See the help menu (choco -h) for options.");
+ See the help menu (choco --help) for options.");
                     }
                     else
                     {
@@ -104,7 +109,6 @@ Chocolatey is not an official build (bypassed with --allow-unofficial).
  now be in a bad state. Only official builds are to be trusted.
 "
                         );
-
                     }
                 }
             }
@@ -112,68 +116,104 @@ Chocolatey is not an official build (bypassed with --allow-unofficial).
             return command;
         }
 
-        private void set_source_type(ChocolateyConfiguration config)
+        private void SetSourceType(ChocolateyConfiguration config, Container container)
         {
-            var sourceType = SourceType.normal;
-            Enum.TryParse(config.Sources, true, out sourceType);
+            var sourceRunner = container.GetAllInstances<IAlternativeSourceRunner>()
+                .FirstOrDefault(s => s.SourceType.IsEqualTo(config.Sources) || s.SourceType.IsEqualTo(config.Sources + "s"));
+
+            var sourceType = SourceTypes.Normal;
+            if (sourceRunner != null)
+            {
+                sourceType = sourceRunner.SourceType;
+            }
+
             config.SourceType = sourceType;
 
-            this.Log().Debug(() => "The source '{0}' evaluated to a '{1}' source type".format_with(config.Sources, sourceType.to_string()));
+            this.Log().Debug(() => "The source '{0}' evaluated to a '{1}' source type".FormatWith(config.Sources, sourceType));
         }
 
-        public void fail_when_license_is_missing_or_invalid_if_requested(ChocolateyConfiguration config)
+        private void IncludeConfiguredSources(ChocolateyConfiguration config)
+        {
+            if (config.IncludeConfiguredSources)
+            {
+                if (config.SourceType != SourceTypes.Normal)
+                {
+                    this.Log().Warn("Not including sources from chocolatey.config file because '{0}' is an alternative source.".FormatWith(config.Sources));
+                }
+                else
+                {
+                    foreach (var machineSource in config.MachineSources.OrEmpty())
+                    {
+                        if (!config.Sources.ContainsSafe(machineSource.Key))
+                        {
+                            config.Sources += ";" + machineSource.Key;
+                        }
+                    }
+
+                    this.Log().Debug("Including sources from chocolatey.config file.");
+                }
+            }
+        }
+
+        public void FailOnMissingOrInvalidLicenseIfFeatureSet(ChocolateyConfiguration config)
         {
             if (!config.Features.FailOnInvalidOrMissingLicense ||
-                config.CommandName.trim_safe().is_equal_to("feature") ||
-                config.CommandName.trim_safe().is_equal_to("features")
-            ) return;
+                config.CommandName.TrimSafe().IsEqualTo("feature") ||
+                config.CommandName.TrimSafe().IsEqualTo("features")
+            )
+            {
+                return;
+            }
 
-            if (!config.Information.IsLicensedVersion) throw new ApplicationException("License is missing or invalid.");
+            if (!config.Information.IsLicensedVersion)
+            {
+                throw new ApplicationException("License is missing or invalid.");
+            }
         }
 
-        public void run(ChocolateyConfiguration config, Container container, bool isConsole, Action<ICommand> parseArgs)
+        public void Run(ChocolateyConfiguration config, Container container, bool isConsole, Action<ICommand> parseArgs)
         {
             var tasks = container.GetAllInstances<ITask>();
             foreach (var task in tasks)
             {
-                task.initialize();
+                task.Initialize();
             }
 
-            fail_when_license_is_missing_or_invalid_if_requested(config);
-            SecurityProtocol.set_protocol(config, provideWarning:true);
-            EventManager.publish(new PreRunMessage(config));
+            FailOnMissingOrInvalidLicenseIfFeatureSet(config);
+            HttpsSecurity.Reset();
+            EventManager.Publish(new PreRunMessage(config));
 
             try
             {
-                var command = find_command(config, container, isConsole, parseArgs);
+                var command = FindCommand(config, container, isConsole, parseArgs);
                 if (command != null)
                 {
                     if (config.Noop)
                     {
                         if (config.RegularOutput)
                         {
-                            this.Log().Info("_ {0}:{1} - Noop Mode _".format_with(ApplicationParameters.Name, command.GetType().Name));
+                            this.Log().Info("_ {0}:{1} - Noop Mode _".FormatWith(ApplicationParameters.Name, command.GetType().Name));
                         }
 
-                        command.noop(config);
+                        command.DryRun(config);
                     }
                     else
                     {
-                        this.Log().Debug("_ {0}:{1} - Normal Run Mode _".format_with(ApplicationParameters.Name, command.GetType().Name));
-                        command.run(config);
+                        this.Log().Debug("_ {0}:{1} - Normal Run Mode _".FormatWith(ApplicationParameters.Name, command.GetType().Name));
+                        command.Run(config);
                     }
                 }
             }
             finally
             {
-                EventManager.publish(new PostRunMessage(config));
+                EventManager.Publish(new PostRunMessage(config));
 
-                foreach (var task in tasks.or_empty_list_if_null())
+                foreach (var task in tasks.OrEmpty())
                 {
-                    task.shutdown();
+                    task.Shutdown();
                 }
 
-                remove_nuget_cache(container, config);
+                RemoveNuGetCache(container, config);
             }
         }
 
@@ -181,9 +221,9 @@ Chocolatey is not an official build (bypassed with --allow-unofficial).
         /// if there is a NuGetScratch cache found, kill it with fire
         /// </summary>
         /// <param name="container">The container.</param>
-        private void remove_nuget_cache(Container container)
+        private void RemoveNuGetCache(Container container)
         {
-            remove_nuget_cache(container, Config.get_configuration_settings());
+            RemoveNuGetCache(container, Config.GetConfigurationSettings());
         }
 
         /// <summary>
@@ -191,101 +231,108 @@ Chocolatey is not an official build (bypassed with --allow-unofficial).
         /// </summary>
         /// <param name="container">The container.</param>
         /// <param name="config">optional Chocolatey configuration to look at cacheLocation</param>
-        private void remove_nuget_cache(Container container, ChocolateyConfiguration config)
+        private void RemoveNuGetCache(Container container, ChocolateyConfiguration config)
         {
             try
             {
                 var fileSystem = container.GetInstance<IFileSystem>();
-                var scratch = fileSystem.combine_paths(fileSystem.get_temp_path(), "NuGetScratch");
-                fileSystem.delete_directory_if_exists(scratch, recursive: true, overrideAttributes: true, isSilent: true);
-                var nugetX = fileSystem.combine_paths(fileSystem.get_temp_path(), "x", "nuget");
-                fileSystem.delete_directory_if_exists(nugetX, recursive: true, overrideAttributes: true, isSilent: true);
+                var scratch = fileSystem.CombinePaths(fileSystem.GetTempPath(), "NuGetScratch");
+                fileSystem.DeleteDirectoryChecked(scratch, recursive: true, overrideAttributes: true, isSilent: true);
+                var nugetX = fileSystem.CombinePaths(fileSystem.GetTempPath(), "x", "nuget");
+                fileSystem.DeleteDirectoryChecked(nugetX, recursive: true, overrideAttributes: true, isSilent: true);
 
-                if (config != null && !string.IsNullOrWhiteSpace(config.CacheLocation)) {
-                    scratch = fileSystem.combine_paths(config.CacheLocation, "NuGetScratch");
-                    fileSystem.delete_directory_if_exists(scratch, recursive: true, overrideAttributes: true, isSilent: true);
-                    nugetX = fileSystem.combine_paths(config.CacheLocation, "x", "nuget");
-                    fileSystem.delete_directory_if_exists(nugetX, recursive: true, overrideAttributes: true, isSilent: true);
+                if (config != null && !string.IsNullOrWhiteSpace(config.CacheLocation))
+                {
+                    scratch = fileSystem.CombinePaths(config.CacheLocation, "NuGetScratch");
+                    fileSystem.DeleteDirectoryChecked(scratch, recursive: true, overrideAttributes: true, isSilent: true);
+                    nugetX = fileSystem.CombinePaths(config.CacheLocation, "x", "nuget");
+                    fileSystem.DeleteDirectoryChecked(nugetX, recursive: true, overrideAttributes: true, isSilent: true);
                 }
             }
             catch (Exception ex)
             {
-                this.Log().Debug(ChocolateyLoggers.Important, "Not able to cleanup NuGet temp folders. Failure was {0}".format_with(ex.Message));
+                this.Log().Debug(ChocolateyLoggers.Important, "Not able to cleanup NuGet temp folders. Failure was {0}".FormatWith(ex.Message));
             }
         }
 
-        public IEnumerable<T> list<T>(ChocolateyConfiguration config, Container container, bool isConsole, Action<ICommand> parseArgs)
+        public IEnumerable<T> List<T>(ChocolateyConfiguration config, Container container, bool isConsole, Action<ICommand> parseArgs)
         {
             var tasks = container.GetAllInstances<ITask>();
             foreach (var task in tasks)
             {
-                task.initialize();
+                task.Initialize();
             }
 
-            fail_when_license_is_missing_or_invalid_if_requested(config);
-            SecurityProtocol.set_protocol(config, provideWarning: true);
-            EventManager.publish(new PreRunMessage(config));
+            FailOnMissingOrInvalidLicenseIfFeatureSet(config);
+            HttpsSecurity.Reset();
+            EventManager.Publish(new PreRunMessage(config));
 
             try
             {
-                var command = find_command(config, container, isConsole, parseArgs) as IListCommand<T>;
+                var command = FindCommand(config, container, isConsole, parseArgs) as IListCommand<T>;
                 if (command == null)
                 {
                     if (!string.IsNullOrWhiteSpace(config.CommandName))
                     {
-                        throw new Exception("The implementation of '{0}' does not support listing '{1}'".format_with(config.CommandName, typeof(T).Name));
+                        throw new Exception("The implementation of '{0}' does not support listing '{1}'".FormatWith(config.CommandName, typeof(T).Name));
                     }
                     return new List<T>();
                 }
                 else
                 {
-                    this.Log().Debug("_ {0}:{1} - Normal List Mode _".format_with(ApplicationParameters.Name, command.GetType().Name));
-                    return command.list(config);
+                    this.Log().Debug("_ {0}:{1} - Normal List Mode _".FormatWith(ApplicationParameters.Name, command.GetType().Name));
+                    return command.List(config);
                 }
             }
             finally
             {
-                EventManager.publish(new PostRunMessage(config));
+                EventManager.Publish(new PostRunMessage(config));
 
-                foreach (var task in tasks.or_empty_list_if_null())
+                foreach (var task in tasks.OrEmpty())
                 {
-                    task.shutdown();
+                    task.Shutdown();
                 }
 
-                remove_nuget_cache(container, config);
+                RemoveNuGetCache(container, config);
             }
         }
 
-        public int count(ChocolateyConfiguration config, Container container, bool isConsole, Action<ICommand> parseArgs)
+        public int Count(ChocolateyConfiguration config, Container container, bool isConsole, Action<ICommand> parseArgs)
         {
-            fail_when_license_is_missing_or_invalid_if_requested(config);
-            SecurityProtocol.set_protocol(config, provideWarning: true);
+            FailOnMissingOrInvalidLicenseIfFeatureSet(config);
+            HttpsSecurity.Reset();
 
-            var command = find_command(config, container, isConsole, parseArgs) as IListCommand;
+            var command = FindCommand(config, container, isConsole, parseArgs) as IListCommand;
             if (command == null)
             {
                 if (!string.IsNullOrWhiteSpace(config.CommandName))
                 {
-                    throw new Exception("The implementation of '{0}' does not support listing.".format_with(config.CommandName));
+                    throw new Exception("The implementation of '{0}' does not support listing.".FormatWith(config.CommandName));
                 }
                 return 0;
             }
             else
             {
-                this.Log().Debug("_ {0}:{1} - Normal Count Mode _".format_with(ApplicationParameters.Name, command.GetType().Name));
-                return command.count(config);
+                this.Log().Debug("_ {0}:{1} - Normal Count Mode _".FormatWith(ApplicationParameters.Name, command.GetType().Name));
+                return command.Count(config);
             }
         }
 
-        public void warn_when_admin_needs_elevation(ChocolateyConfiguration config)
+        public void WarnIfAdminAndNeedsElevation(ChocolateyConfiguration config)
         {
-            if (config.HelpRequested) return;
+            if (config.HelpRequested)
+            {
+                return;
+            }
 
             // skip when commands will set or for background mode
-            if (!config.Features.ShowNonElevatedWarnings) return;
+            if (!config.Features.ShowNonElevatedWarnings)
+            {
+                return;
+            }
 
             var shouldWarn = (!config.Information.IsProcessElevated && config.Information.IsUserAdministrator)
-                          || (!config.Information.IsUserAdministrator && ApplicationParameters.InstallLocation.is_equal_to(ApplicationParameters.CommonAppDataChocolatey));
+                          || (!config.Information.IsUserAdministrator && ApplicationParameters.InstallLocation.IsEqualTo(ApplicationParameters.CommonAppDataChocolatey));
 
             if (shouldWarn)
             {
@@ -306,9 +353,10 @@ Chocolatey is not an official build (bypassed with --allow-unofficial).
  attempting to use Chocolatey in a non-administrator setting, you
  must select a different location other than the default install
  location. See
- https://chocolatey.org/install#non-administrative-install for details.
+ https://docs.chocolatey.org/en-us/choco/setup#non-administrative-install
+ for details.
 ");
-                var selection = InteractivePrompt.prompt_for_confirmation(@"
+                var selection = InteractivePrompt.PromptForConfirmation(@"
  Do you want to continue?", new[] { "yes", "no" },
                         defaultChoice: null,
                         requireAnswer: false,
@@ -317,13 +365,33 @@ Chocolatey is not an official build (bypassed with --allow-unofficial).
                         timeoutInSeconds: timeoutInSeconds
                         );
 
-                if (selection.is_equal_to("no"))
+                if (selection.IsEqualTo("no"))
                 {
                     Environment.Exit(-1);
                 }
             }
         }
 
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public void fail_when_license_is_missing_or_invalid_if_requested(ChocolateyConfiguration config)
+            => FailOnMissingOrInvalidLicenseIfFeatureSet(config);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public void run(ChocolateyConfiguration config, Container container, bool isConsole, Action<ICommand> parseArgs)
+            => Run(config, container, isConsole, parseArgs);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public IEnumerable<T> list<T>(ChocolateyConfiguration config, Container container, bool isConsole, Action<ICommand> parseArgs)
+            => List<T>(config, container, isConsole, parseArgs);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public int count(ChocolateyConfiguration config, Container container, bool isConsole, Action<ICommand> parseArgs)
+            => Count(config, container, isConsole, parseArgs);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public void warn_when_admin_needs_elevation(ChocolateyConfiguration config)
+            => WarnIfAdminAndNeedsElevation(config);
+#pragma warning restore IDE0022, IDE1006
     }
 }
-

@@ -1,0 +1,25 @@
+{
+    "[powershell]": {
+        "files.encoding": "utf8bom",
+    },
+    "markdown.extension.toc.levels": "2..6",
+    "cSpell.words": [
+        "apikey",
+        "automaticpackage",
+        "autouninstaller",
+        "certpassword",
+        "checksumtype",
+        "forcex",
+        "installertype",
+        "maintainername",
+        "maintainerrepo",
+        "outputdirectory",
+        "packageversion",
+        "Pathto",
+        "powertab",
+        "silentargs",
+        "unfound",
+        "whatif",
+        "windowsfeatures"
+    ]
+}

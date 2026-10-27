@@ -5,7 +5,9 @@ code_drop
 [Bb]in
 obj
 src/packages
-/.vscode/
+/.vscode/**
+!.vscode/extensions.json
+!/.vscode/settings.json
 .vs
 
 *.suo
@@ -26,7 +28,7 @@ _ReSharper*
 *userprefs
 *.nupkg
 
-TestResult.xml
+TestResult[s].xml
 submit.xml
 SolutionVersion.cs
 SolutionVersion.vb
@@ -36,3 +38,23 @@ SolutionVersion.vb
 src/_dotCover.chocolatey/
 src/_dotTrace.chocolatey/
 src/chocolatey.sln.GhostDoc.xml
+
+chocolatey.official.snk
+chocolatey.license.xml
+
+docs/generated
+
+# Testing related
+.vagrant
+
+# Build related
+tools/**
+!tools/packages.config
+!tools/Addins/packages.config
+!tools/Modules/packages.config
+BuildArtifacts/
+code_drop/
+src/chocolatey.install/assets/Install.ps1
+
+# This project uses an editorconfig file maintained via a nuget package, so do not commit any of these to the repo
+.editorconfig

@@ -1,26 +1,26 @@
-// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using chocolatey.infrastructure.logging;
+
 namespace chocolatey.infrastructure.commands
 {
-    using System;
-    using System.Threading;
-    using System.Threading.Tasks;
-    using logging;
-
     /// <summary>
     /// Execute a method or function
     /// </summary>
@@ -33,7 +33,7 @@ namespace chocolatey.infrastructure.commands
         /// </summary>
         /// <param name="timeoutInSeconds">The timeout in seconds.</param>
         /// <returns></returns>
-        public static Execute with_timeout(int timeoutInSeconds)
+        public static Execute WithTimeout(int timeoutInSeconds)
         {
             return new Execute(TimeSpan.FromSeconds(timeoutInSeconds));
         }
@@ -43,7 +43,7 @@ namespace chocolatey.infrastructure.commands
         /// </summary>
         /// <param name="timeout">The timeout.</param>
         /// <returns></returns>
-        public static Execute with_timeout(TimeSpan timeout)
+        public static Execute WithTimeout(TimeSpan timeout)
         {
             return new Execute(timeout);
         }
@@ -60,14 +60,17 @@ namespace chocolatey.infrastructure.commands
         /// <param name="function">The function to execute.</param>
         /// <param name="timeoutDefaultValue">The timeout default value.</param>
         /// <returns>The results of the function if completes within timespan, otherwise returns the default value.</returns>
-        public T command<T>(Func<T> function, T timeoutDefaultValue)
+        public T Command<T>(Func<T> function, T timeoutDefaultValue)
         {
-            if (function == null) return timeoutDefaultValue;
+            if (function == null)
+            {
+                return timeoutDefaultValue;
+            }
 
             var cancelToken = new CancellationTokenSource();
             cancelToken.Token.ThrowIfCancellationRequested();
             var task = Task<T>.Factory.StartNew(function, cancelToken.Token); //,TaskCreationOptions.LongRunning| TaskCreationOptions.AttachedToParent);
-           
+
             if (_timespan.TotalSeconds < 1d)
             {
                 // 0 means infinite
@@ -78,13 +81,16 @@ namespace chocolatey.infrastructure.commands
                 task.Wait(_timespan);
             }
 
-            if (task.IsCompleted) return task.Result;
+            if (task.IsCompleted)
+            {
+                return task.Result;
+            }
 
             cancelToken.Cancel();
-            this.Log().Warn(ChocolateyLoggers.Important,() => @"Chocolatey timed out waiting for the command to finish. The timeout 
- specified (or the default value) was '{0}' seconds. Perhaps try a 
- higher `--execution-timeout`? See `choco -h` for details.".format_with(_timespan.TotalSeconds));
-           
+            this.Log().Warn(ChocolateyLoggers.Important, () => @"Chocolatey timed out waiting for the command to finish. The timeout
+ specified (or the default value) was '{0}' seconds. Perhaps try a
+ higher `--execution-timeout`? See `choco --help` for details.".FormatWith(_timespan.TotalSeconds));
+
             return timeoutDefaultValue;
 
             //T result = timeoutDefaultValue;
@@ -102,9 +108,12 @@ namespace chocolatey.infrastructure.commands
         /// </summary>
         /// <param name="action">The action to perform.</param>
         /// <returns>True if it finishes executing, false otherwise.</returns>
-        public bool command(Action action)
+        public bool Command(Action action)
         {
-            if (action == null) return false;
+            if (action == null)
+            {
+                return false;
+            }
 
             var completed = false;
 
@@ -118,7 +127,7 @@ namespace chocolatey.infrastructure.commands
             }
             else
             {
-                task.Wait(_timespan);                
+                task.Wait(_timespan);
             }
 
             completed = task.IsCompleted;
@@ -126,13 +135,31 @@ namespace chocolatey.infrastructure.commands
             if (!completed)
             {
                 cancelToken.Cancel();
-                this.Log().Warn(ChocolateyLoggers.Important, () => @"Chocolatey timed out waiting for the command to finish. The timeout 
- specified (or the default value) was '{0}' seconds. Perhaps try a 
- higher `--execution-timeout`? See `choco -h` for details.".format_with(_timespan.TotalSeconds));
-           
+                this.Log().Warn(ChocolateyLoggers.Important, () => @"Chocolatey timed out waiting for the command to finish. The timeout
+ specified (or the default value) was '{0}' seconds. Perhaps try a
+ higher `--execution-timeout`? See `choco --help` for details.".FormatWith(_timespan.TotalSeconds));
+
             }
 
             return completed;
         }
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public static Execute with_timeout(int timeoutInSeconds)
+            => WithTimeout(timeoutInSeconds);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public static Execute with_timeout(TimeSpan timeout)
+            => WithTimeout(timeout);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public T command<T>(Func<T> function, T timeoutDefaultValue)
+            => Command(function, timeoutDefaultValue);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public bool command(Action action)
+            => Command(action);
+#pragma warning restore IDE0022, IDE1006
     }
 }

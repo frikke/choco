@@ -1,27 +1,25 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Concurrent;
+using chocolatey.infrastructure.logging;
+
 namespace chocolatey
 {
-    using System;
-    using System.Collections.Concurrent;
-    using infrastructure.logging;
-
-    // ReSharper disable InconsistentNaming
-
     /// <summary>
     ///   Extensions to help make logging awesome
     /// </summary>
@@ -52,14 +50,16 @@ namespace chocolatey
         }
 
         /// <summary>
-        ///   Gets the logger for <see cref="T" />.
+        ///   Gets the logger for <see cref="Log{T}" />.
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="type">The type to get the logger for.</param>
         /// <returns>Instance of a logger for the object.</returns>
+#pragma warning disable IDE0060 // Unused method parameter
         public static ILog Log<T>(this T type)
+#pragma warning restore IDE0060 // Unused method parameter
         {
-            string objectName = typeof (T).FullName;
+            var objectName = typeof(T).FullName;
             return Log(objectName);
         }
 
@@ -73,6 +73,4 @@ namespace chocolatey
             return _dictionary.Value.GetOrAdd(objectName, infrastructure.logging.Log.GetLoggerFor(objectName));
         }
     }
-
-    // ReSharper restore InconsistentNaming
 }

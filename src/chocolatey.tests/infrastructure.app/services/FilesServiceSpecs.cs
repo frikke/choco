@@ -1,35 +1,35 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using System.IO;
+using chocolatey.infrastructure.app;
+using chocolatey.infrastructure.app.configuration;
+using chocolatey.infrastructure.app.domain;
+using chocolatey.infrastructure.app.services;
+using chocolatey.infrastructure.cryptography;
+using chocolatey.infrastructure.filesystem;
+using chocolatey.infrastructure.results;
+using chocolatey.infrastructure.services;
+using Moq;
+using FluentAssertions;
+
 namespace chocolatey.tests.infrastructure.app.services
 {
-    using System;
-    using System.Collections.Generic;
-    using System.IO;
-    using chocolatey.infrastructure.app;
-    using chocolatey.infrastructure.app.configuration;
-    using chocolatey.infrastructure.app.domain;
-    using chocolatey.infrastructure.app.services;
-    using chocolatey.infrastructure.cryptography;
-    using chocolatey.infrastructure.filesystem;
-    using chocolatey.infrastructure.results;
-    using chocolatey.infrastructure.services;
-    using Moq;
-    using Should;
-
     public class FilesServiceSpecs
     {
         public abstract class FilesServiceSpecsBase : TinySpec
@@ -48,185 +48,185 @@ namespace chocolatey.tests.infrastructure.app.services
             }
         }
 
-        public class when_FilesService_reads_from_files : FilesServiceSpecsBase
+        public class When_FilesService_reads_from_files : FilesServiceSpecsBase
         {
-            private Func<PackageFiles> because;
+            private Func<PackageFiles> _because;
 
             public override void Because()
             {
-                because = () => Service.read_from_file("fake path");
+                _because = () => Service.ReadPackageSnapshot("fake path");
             }
 
             [Fact]
-            public void should_deserialize_when_file_exists()
+            public void Should_deserialize_when_file_exists()
             {
                 Context();
-                FileSystem.Setup(x => x.file_exists(It.IsAny<string>())).Returns(true);
-                XmlService.Setup(x => x.deserialize<PackageFiles>(It.IsAny<string>())).Returns(new PackageFiles());
+                FileSystem.Setup(x => x.FileExists(It.IsAny<string>())).Returns(true);
+                XmlService.Setup(x => x.Deserialize<PackageFiles>(It.IsAny<string>())).Returns(new PackageFiles());
 
-                because();
+                _because();
             }
 
             [Fact]
-            public void should_not_deserialize_if_file_does_not_exist()
+            public void Should_not_deserialize_if_file_does_not_exist()
             {
                 Context();
-                FileSystem.Setup(x => x.file_exists(It.IsAny<string>())).Returns(false);
+                FileSystem.Setup(x => x.FileExists(It.IsAny<string>())).Returns(false);
 
-                because();
+                _because();
 
-                XmlService.Verify(x => x.deserialize<PackageFiles>(It.IsAny<string>()), Times.Never);
+                XmlService.Verify(x => x.Deserialize<PackageFiles>(It.IsAny<string>()), Times.Never);
             }
         }
 
-        public class when_FilesService_saves_files : FilesServiceSpecsBase
+        public class When_FilesService_saves_files : FilesServiceSpecsBase
         {
-            private Action because;
-            private PackageFiles files;
+            private Action _because;
+            private PackageFiles _files;
 
             public override void Because()
             {
-                because = () => Service.save_to_file(files, "fake path");
+                _because = () => Service.SavePackageSnapshot(_files, "fake path");
             }
 
             [Fact]
-            public void should_save_if_the_snapshot_is_not_null()
+            public void Should_save_if_the_snapshot_is_not_null()
             {
                 Context();
-                files = new PackageFiles();
+                _files = new PackageFiles();
 
-                because();
+                _because();
 
-                XmlService.Verify(x => x.serialize(files, It.IsAny<string>()), Times.Once());
+                XmlService.Verify(x => x.Serialize(_files, It.IsAny<string>()), Times.Once());
             }
 
             [Fact]
-            public void should_not_do_anything_if_the_snapshot_is_null()
+            public void Should_not_do_anything_if_the_snapshot_is_null()
             {
                 Context();
-                files = null;
+                _files = null;
 
-                because();
+                _because();
 
-                XmlService.Verify(x => x.serialize(files, It.IsAny<string>()), Times.Never);
+                XmlService.Verify(x => x.Serialize(_files, It.IsAny<string>()), Times.Never);
             }
         }
 
-        public class when_FilesService_captures_files_and_install_directory_reports_choco_install_location : FilesServiceSpecsBase
+        public class When_FilesService_captures_files_and_install_directory_reports_choco_install_location : FilesServiceSpecsBase
         {
-            private PackageFiles result;
-            private PackageResult packageResult;
-            private readonly ChocolateyConfiguration config = new ChocolateyConfiguration();
+            private PackageFiles _result;
+            private PackageResult _packageResult;
+            private readonly ChocolateyConfiguration _config = new ChocolateyConfiguration();
 
             public override void Context()
             {
                 base.Context();
-                packageResult = new PackageResult("bob", "1.2.3", ApplicationParameters.InstallLocation);
+                _packageResult = new PackageResult("bob", "1.2.3", ApplicationParameters.InstallLocation);
             }
 
             public override void Because()
             {
-                result = Service.capture_package_files(packageResult, config);
+                _result = Service.CaptureSnapshot(_packageResult, _config);
             }
 
             [Fact]
-            public void should_not_call_get_files()
+            public void Should_not_call_get_files()
             {
-                FileSystem.Verify(x => x.get_files(It.IsAny<string>(), It.IsAny<string>(), SearchOption.AllDirectories), Times.Never);
+                FileSystem.Verify(x => x.GetFiles(It.IsAny<string>(), It.IsAny<string>(), SearchOption.AllDirectories), Times.Never);
             }
 
             [Fact]
-            public void should_return_a_warning_if_the_install_directory_matches_choco_install_location()
+            public void Should_return_a_warning_if_the_install_directory_matches_choco_install_location()
             {
-                packageResult.Warning.ShouldBeTrue();
+                _packageResult.Warning.Should().BeTrue();
             }
 
             [Fact]
-            public void should_return_null()
+            public void Should_return_null()
             {
-                result.ShouldBeNull();
+                _result.Should().BeNull();
             }
         }
 
-        public class when_FilesService_captures_files_and_install_directory_reports_packages_location : FilesServiceSpecsBase
+        public class When_FilesService_captures_files_and_install_directory_reports_packages_location : FilesServiceSpecsBase
         {
-            private PackageFiles result;
-            private PackageResult packageResult;
-            private readonly ChocolateyConfiguration config = new ChocolateyConfiguration();
+            private PackageFiles _result;
+            private PackageResult _packageResult;
+            private readonly ChocolateyConfiguration _config = new ChocolateyConfiguration();
 
             public override void Context()
             {
                 base.Context();
-                packageResult = new PackageResult("bob", "1.2.3", ApplicationParameters.PackagesLocation);
+                _packageResult = new PackageResult("bob", "1.2.3", ApplicationParameters.PackagesLocation);
             }
 
             public override void Because()
             {
-                result = Service.capture_package_files(packageResult, config);
+                _result = Service.CaptureSnapshot(_packageResult, _config);
             }
 
             [Fact]
-            public void should_not_call_get_files()
+            public void Should_not_call_get_files()
             {
-                FileSystem.Verify(x => x.get_files(It.IsAny<string>(), It.IsAny<string>(), SearchOption.AllDirectories), Times.Never);
+                FileSystem.Verify(x => x.GetFiles(It.IsAny<string>(), It.IsAny<string>(), SearchOption.AllDirectories), Times.Never);
             }
 
             [Fact]
-            public void should_return_a_warning_if_the_install_directory_matches_choco_install_location()
+            public void Should_return_a_warning_if_the_install_directory_matches_choco_install_location()
             {
-                packageResult.Warning.ShouldBeTrue();
+                _packageResult.Warning.Should().BeTrue();
             }
 
             [Fact]
-            public void should_return_null()
+            public void Should_return_null()
             {
-                result.ShouldBeNull();
+                _result.Should().BeNull();
             }
         }
 
-        public class when_FilesService_captures_files_and_package_result_is_null : FilesServiceSpecsBase
+        public class When_FilesService_captures_files_and_package_result_is_null : FilesServiceSpecsBase
         {
-            private PackageFiles result;
-            private PackageResult packageResult;
-            private readonly ChocolateyConfiguration config = new ChocolateyConfiguration();
+            private PackageFiles _result;
+            private PackageResult _packageResult;
+            private readonly ChocolateyConfiguration _config = new ChocolateyConfiguration();
 
             public override void Context()
             {
                 base.Context();
-                packageResult = null;
+                _packageResult = null;
             }
 
             public override void Because()
             {
-                result = Service.capture_package_files(packageResult, config);
+                _result = Service.CaptureSnapshot(_packageResult, _config);
             }
 
             [Fact]
-            public void should_not_call_get_files()
+            public void Should_not_call_get_files()
             {
-                FileSystem.Verify(x => x.get_files(It.IsAny<string>(), It.IsAny<string>(), SearchOption.AllDirectories), Times.Never);
+                FileSystem.Verify(x => x.GetFiles(It.IsAny<string>(), It.IsAny<string>(), SearchOption.AllDirectories), Times.Never);
             }
 
             [Fact]
-            public void should_return_a_non_null_object()
+            public void Should_return_a_non_null_object()
             {
-                result.ShouldNotBeNull();
+                _result.Should().NotBeNull();
             }
 
             [Fact]
-            public void should_return_empty_package_files()
+            public void Should_return_empty_package_files()
             {
-                result.Files.ShouldBeEmpty();
+                _result.Files.Should().BeEmpty();
             }
         }
 
-        public class when_FilesService_captures_files_happy_path : FilesServiceSpecsBase
+        public class When_FilesService_captures_files_happy_path : FilesServiceSpecsBase
         {
-            private PackageFiles result;
-            private PackageResult packageResult;
-            private readonly ChocolateyConfiguration config = new ChocolateyConfiguration();
-            private readonly string installDirectory = ApplicationParameters.PackagesLocation + "\\bob";
-            private readonly IList<string> files = new List<string>
+            private PackageFiles _result;
+            private PackageResult _packageResult;
+            private readonly ChocolateyConfiguration _config = new ChocolateyConfiguration();
+            private readonly string _installDirectory = ApplicationParameters.PackagesLocation + "\\bob";
+            private readonly IList<string> _files = new List<string>
             {
                 "file1",
                 "file2"
@@ -235,39 +235,39 @@ namespace chocolatey.tests.infrastructure.app.services
             public override void Context()
             {
                 base.Context();
-                packageResult = new PackageResult("bob", "1.2.3", installDirectory);
+                _packageResult = new PackageResult("bob", "1.2.3", _installDirectory);
 
-                FileSystem.Setup(x => x.get_files(ApplicationParameters.PackagesLocation + "\\bob", It.IsAny<string>(), SearchOption.AllDirectories)).Returns(files);
-                HashProvider.Setup(x => x.hash_file(It.IsAny<string>())).Returns("yes");
+                FileSystem.Setup(x => x.GetFiles(ApplicationParameters.PackagesLocation + "\\bob", It.IsAny<string>(), SearchOption.AllDirectories)).Returns(_files);
+                HashProvider.Setup(x => x.ComputeFileHash(It.IsAny<string>())).Returns("yes");
             }
 
             public override void Because()
             {
-                result = Service.capture_package_files(packageResult, config);
+                _result = Service.CaptureSnapshot(_packageResult, _config);
             }
 
             [Fact]
-            public void should_return_a_PackageFiles_object()
+            public void Should_return_a_PackageFiles_object()
             {
-                result.ShouldNotBeNull();
+                _result.Should().NotBeNull();
             }
 
             [Fact]
-            public void should_contain_package_files()
+            public void Should_contain_package_files()
             {
-                result.Files.ShouldNotBeEmpty();
+                _result.Files.Should().NotBeEmpty();
             }
 
             [Fact]
-            public void should_contain_the_correct_number_of_package_files()
+            public void Should_contain_the_correct_number_of_package_files()
             {
-                result.Files.Count.ShouldEqual(files.Count);
+                _result.Files.Should().HaveCount(_files.Count);
             }
 
             [Fact]
-            public void should_call_hash_provider_for_each_file()
+            public void Should_call_hash_provider_for_each_file()
             {
-                HashProvider.Verify(x => x.hash_file(It.IsAny<string>()), Times.Exactly(files.Count));
+                HashProvider.Verify(x => x.ComputeFileHash(It.IsAny<string>()), Times.Exactly(_files.Count));
             }
         }
     }

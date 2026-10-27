@@ -1,4 +1,4 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,15 +14,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+
 namespace chocolatey.infrastructure.app.attributes
 {
-    using System;
-
     [AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
     public class CommandForAttribute : Attribute
     {
         public string CommandName { get; private set; }
         public string Description { get; private set; }
+
+        /// <summary>
+        /// Gets or sets the version a command was introduced in.
+        /// </summary>
+        public string Version { get; set; }
 
         public CommandForAttribute(string commandName, string description)
         {

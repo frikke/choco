@@ -1,4 +1,4 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,11 +14,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Xml.Serialization;
+
 namespace chocolatey.infrastructure.app.configuration
 {
-    using System;
-    using System.Xml.Serialization;
-
     /// <summary>
     ///   XML config file api keys element
     /// </summary>
@@ -40,17 +40,15 @@ namespace chocolatey.infrastructure.app.configuration
                 return false;
             }
 
-            var item = (ConfigFileApiKeySetting) obj;
+            var item = (ConfigFileApiKeySetting)obj;
 
             return (Source == item.Source)
-                   && (Key == item.Source);
+                   && (Key == item.Key);
         }
 
         public override int GetHashCode()
         {
-            return HashCode
-                .Of(Source)
-                .And(Key);
+            return HashCode.Combine(Source, Key);
         }
     }
 }

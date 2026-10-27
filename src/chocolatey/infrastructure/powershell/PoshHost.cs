@@ -1,29 +1,29 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Globalization;
+using System.Management.Automation.Host;
+using chocolatey.infrastructure.app;
+using chocolatey.infrastructure.app.configuration;
+using chocolatey.infrastructure.app.domain;
+using chocolatey.infrastructure.app.services;
+
 namespace chocolatey.infrastructure.powershell
 {
-    using System;
-    using System.Globalization;
-    using System.Management.Automation.Host;
-    using app;
-    using app.configuration;
-    using app.domain;
-    using app.services;
-
     public class PoshHost : PSHost
     {
         private readonly ChocolateyConfiguration _configuration;
@@ -41,7 +41,7 @@ namespace chocolatey.infrastructure.powershell
 
         // others
         // http://stackoverflow.com/questions/16329448/hosting-powershell-powershell-vs-runspace-vs-runspacepool-vs-pipeline
-        // 
+        //
 
         public int ExitCode { get; set; }
         public Exception HostException { get; set; }
@@ -52,25 +52,25 @@ namespace chocolatey.infrastructure.powershell
             ExitCode = -1;
             _configuration = configuration;
             _psUI = new PoshHostUserInterface(configuration);
-            _version = get_current_version();
+            _version = GetCurrentVersion();
         }
 
         /// <summary>
-        /// Grabs the current version of PowerShell from the registry 
+        /// Grabs the current version of PowerShell from the registry
         /// </summary>
         /// <returns></returns>
         /// <remarks>We can cheat because we require at least v2, which takes us down to just the check for v3</remarks>
-        private Version get_current_version()
+        private Version GetCurrentVersion()
         {
             // users need at least v2 to even use Chocolatey
             // this allows us to shortcut the check for the v1/2 key
             var version = new Version(2, 0);
-            var majorMinor = RegistryService.get_value(RegistryHiveType.LocalMachine, "SOFTWARE\\Microsoft\\PowerShell\\3\\PowerShellEngine", "PowerShellVersion");
+            var majorMinor = RegistryService.GetRegistryValue(RegistryHiveType.LocalMachine, "SOFTWARE\\Microsoft\\PowerShell\\3\\PowerShellEngine", "PowerShellVersion");
             if (majorMinor != null)
             {
                 version = new Version(majorMinor.Value);
             }
-          
+
             return version;
         }
 

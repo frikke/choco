@@ -1,4 +1,4 @@
-// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,18 +14,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using chocolatey.infrastructure.app.configuration;
+using System;
+
 namespace chocolatey.infrastructure.app.services
 {
-    using configuration;
-
     /// <summary>
     ///   Test to see if there are any known situations that require
     ///   a System reboot.
     /// </summary>
-    /// <param name="config">The current Chocolatey Configuration</param>
     /// <returns><c>true</c> if reboot is required; otherwise <c>false</c>.</returns>
     public interface IPendingRebootService
     {
+        bool IsRebootPending(ChocolateyConfiguration config);
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
         bool is_pending_reboot(ChocolateyConfiguration config);
+#pragma warning restore IDE0022, IDE1006
     }
 }

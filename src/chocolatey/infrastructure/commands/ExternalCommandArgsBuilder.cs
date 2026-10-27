@@ -1,26 +1,26 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Text;
+
 namespace chocolatey.infrastructure.commands
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Reflection;
-    using System.Text;
-
     /// <summary>
     ///   Responsible for setting up arguments for an external command to be executed
     /// </summary>
@@ -32,12 +32,12 @@ namespace chocolatey.infrastructure.commands
         /// <param name="properties">The properties object. Public properties are inspected for names and values based on exact matches in the configToArgNames dictionary.</param>
         /// <param name="configToArgNames">Dictionary of external commands set in the exact order in which you want to get back arguments. Keys should match exactly (casing as well) with the property names of the properties object.</param>
         /// <returns>A string containing the arguments merged from the configToArgNames dictionary and the properties object.</returns>
-        public static string build_arguments(object properties, IDictionary<string, ExternalCommandArgument> configToArgNames)
+        public static string BuildArguments(object properties, IDictionary<string, ExternalCommandArgument> configToArgNames)
         {
             var arguments = new StringBuilder();
             var propValues = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
 
-            fill_args_dictionary(propValues, properties.GetType().GetProperties(), configToArgNames, properties, "");
+            FillArgsDictionary(propValues, properties.GetType().GetProperties(), configToArgNames, properties, "");
 
             foreach (var arg in configToArgNames)
             {
@@ -49,7 +49,7 @@ namespace chocolatey.infrastructure.commands
                 {
                     if (arg.Value.Required)
                     {
-                        var argValue = quote_arg_value_if_required(arg.Value).wrap_spaces_in_quotes();
+                        var argValue = QuoteArgumentValueIfRequired(arg.Value).QuoteIfContainsSpaces();
 
                         if (arg.Value.UseValueOnly)
                         {
@@ -62,21 +62,27 @@ namespace chocolatey.infrastructure.commands
                     }
                 }
             }
-            if (arguments.Length == 0) return string.Empty;
+            if (arguments.Length == 0)
+            {
+                return string.Empty;
+            }
 
             return arguments.Remove(arguments.Length - 1, 1).ToString();
         }
 
-        private static void fill_args_dictionary(Dictionary<string, string> propertyValues, IEnumerable<PropertyInfo> properties, IDictionary<string, ExternalCommandArgument> configToArgNames, object obj, string prepend)
+        private static void FillArgsDictionary(Dictionary<string, string> propertyValues, IEnumerable<PropertyInfo> properties, IDictionary<string, ExternalCommandArgument> configToArgNames, object obj, string prepend)
         {
-            foreach (var prop in properties.or_empty_list_if_null())
+            foreach (var prop in properties.OrEmpty())
             {
-                //todo: need a better way of handling
-                if (prop.Name == "MachineSources") continue;
-
-                if (prop.PropertyType.is_built_in_system_type())
+                //todo: #2587 need a better way of handling
+                if (prop.Name == "MachineSources")
                 {
-                    var propName = "{0}{1}".format_with(
+                    continue;
+                }
+
+                if (prop.PropertyType.IsBuiltinType())
+                {
+                    var propName = "{0}{1}".FormatWith(
                         string.IsNullOrWhiteSpace(prepend) ? "" : prepend + ".",
                         prop.Name
                         );
@@ -85,13 +91,13 @@ namespace chocolatey.infrastructure.commands
                     {
                         var arg = configToArgNames[propName];
                         var propType = prop.PropertyType;
-                        var propValue = prop.GetValue(obj, null).to_string().wrap_spaces_in_quotes();
-                        if (propType == typeof (Boolean) && propValue.is_equal_to(bool.FalseString))
+                        var propValue = prop.GetValue(obj, null).ToStringSafe().QuoteIfContainsSpaces();
+                        if (propType == typeof(bool) && propValue.IsEqualTo(bool.FalseString))
                         {
                             continue;
                         }
 
-                        if (string.IsNullOrWhiteSpace(arg.ArgumentValue) && propType != typeof (Boolean))
+                        if (string.IsNullOrWhiteSpace(arg.ArgumentValue) && propType != typeof(bool))
                         {
                             if (string.IsNullOrWhiteSpace(propValue))
                             {
@@ -104,26 +110,40 @@ namespace chocolatey.infrastructure.commands
                         propertyValues.Add(
                             propName,
                             arg.UseValueOnly
-                                ? "{0}".format_with(quote_arg_value_if_required(arg))
-                                : "{0}{1}".format_with(arg.ArgumentOption, quote_arg_value_if_required(arg))
+                                ? "{0}".FormatWith(QuoteArgumentValueIfRequired(arg))
+                                : "{0}{1}".FormatWith(arg.ArgumentOption, QuoteArgumentValueIfRequired(arg))
                             );
                     }
                 }
                 else
                 {
-                    fill_args_dictionary(propertyValues, prop.PropertyType.GetProperties(), configToArgNames, prop.GetValue(obj, null), prop.Name);
+                    FillArgsDictionary(propertyValues, prop.PropertyType.GetProperties(), configToArgNames, prop.GetValue(obj, null), prop.Name);
                 }
             }
         }
 
-        private static string quote_arg_value_if_required(ExternalCommandArgument argument)
+        private static string QuoteArgumentValueIfRequired(ExternalCommandArgument argument)
         {
             if (argument.QuoteValue && !argument.ArgumentValue.StartsWith("\""))
             {
-                return "\"{0}\"".format_with(argument.ArgumentValue);
+                return "\"{0}\"".FormatWith(argument.ArgumentValue);
             }
 
             return argument.ArgumentValue;
         }
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public static string build_arguments(object properties, IDictionary<string, ExternalCommandArgument> configToArgNames)
+            => BuildArguments(properties, configToArgNames);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        private static void fill_args_dictionary(Dictionary<string, string> propertyValues, IEnumerable<PropertyInfo> properties, IDictionary<string, ExternalCommandArgument> configToArgNames, object obj, string prepend)
+            => FillArgsDictionary(propertyValues, properties, configToArgNames, obj, prepend);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        private static string quote_arg_value_if_required(ExternalCommandArgument argument)
+            => QuoteArgumentValueIfRequired(argument);
+#pragma warning restore IDE0022, IDE1006
     }
 }

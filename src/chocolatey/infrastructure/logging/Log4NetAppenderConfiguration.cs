@@ -1,45 +1,45 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.IO;
+using System.Linq;
+using chocolatey.infrastructure.adapters;
+using chocolatey.infrastructure.app;
+using log4net;
+using log4net.Appender;
+using log4net.Config;
+using log4net.Core;
+using log4net.Filter;
+using log4net.Layout;
+using log4net.Repository;
+using log4net.Repository.Hierarchy;
+using chocolatey.infrastructure.platforms;
+using Console = chocolatey.infrastructure.adapters.Console;
+
 namespace chocolatey.infrastructure.logging
 {
-    using System;
-    using System.Collections.Generic;
-    using System.ComponentModel;
-    using System.IO;
-    using System.Linq;
-    using adapters;
-    using app;
-    using log4net;
-    using log4net.Appender;
-    using log4net.Config;
-    using log4net.Core;
-    using log4net.Filter;
-    using log4net.Layout;
-    using log4net.Repository;
-    using log4net.Repository.Hierarchy;
-    using platforms;
-    using Console = adapters.Console;
-
     public sealed class Log4NetAppenderConfiguration
     {
         private static readonly log4net.ILog _logger = LogManager.GetLogger(typeof(Log4NetAppenderConfiguration));
         private static Lazy<IConsole> _console = new Lazy<IConsole>(() => new Console());
         [EditorBrowsable(EditorBrowsableState.Never)]
-        public static void initialize_with(Lazy<IConsole> console)
+        public static void InitializeWith(Lazy<IConsole> console)
         {
             _console = console;
         }
@@ -50,20 +50,20 @@ namespace chocolatey.infrastructure.logging
         }
 
         private static bool _alreadyConfiguredFileAppender;
-        private static readonly string _summaryLogAppenderName = "{0}.summary.log.appender".format_with(ApplicationParameters.Name);
-        private const string NORMAL_LOGGING_COLORED_APPENDER = "NormalLoggingColoredConsoleAppender";
-        private const string IMPORTANT_LOGGING_COLORED_APPENDER = "ImportantLoggingColoredConsoleAppender";
+        private static readonly string _summaryLogAppenderName = "{0}.summary.log.appender".FormatWith(ApplicationParameters.Name);
+        private const string NormalLoggingColoredAppender = "NormalLoggingColoredConsoleAppender";
+        private const string ImportantLoggingColoredAppender = "ImportantLoggingColoredConsoleAppender";
 
         /// <summary>
-        ///   Pulls xml configuration from embedded location and applies it. 
+        ///   Pulls xml configuration from embedded location and applies it.
         ///   Then it configures a file appender to the specified output directory if one is provided.
         /// </summary>
         /// <param name="outputDirectory">The output directory.</param>
         /// <param name="excludeLoggerNames">Loggers, such as a verbose logger, to exclude from this.</param>
-        public static void configure(string outputDirectory = null, params string[] excludeLoggerNames)
+        public static void Configure(string outputDirectory = null, params string[] excludeLoggerNames)
         {
             GlobalContext.Properties["pid"] = System.Diagnostics.Process.GetCurrentProcess().Id;
-            
+
             var xmlConfigFile = Path.Combine(ApplicationParameters.InstallLocation, "log4net.config.xml");
             if (File.Exists(xmlConfigFile))
             {
@@ -74,27 +74,27 @@ namespace chocolatey.infrastructure.logging
             {
                 var assembly = Assembly.GetExecutingAssembly();
                 var resource = ApplicationParameters.Log4NetConfigurationResource;
-                if (Platform.get_platform() != PlatformType.Windows)
+                if (Platform.GetPlatform() != PlatformType.Windows)
                 {
                     // it became much easier to do this once we realized that updating the current mappings is about impossible.
                     resource = resource.Replace("log4net.", "log4net.mono.");
                 }
-                Stream xmlConfigStream = assembly.get_manifest_stream(resource);
+                Stream xmlConfigStream = assembly.GetManifestStream(resource);
 
                 XmlConfigurator.Configure(xmlConfigStream);
 
                 _logger.DebugFormat("Configured Log4Net configuration ('{0}') from assembly {1}", resource, assembly.FullName);
             }
 
-            configure_info_logging_colors();
-            
+            ConfigureLoggingInfoColors();
+
             if (!string.IsNullOrWhiteSpace(outputDirectory))
             {
-                set_file_appender(outputDirectory, excludeLoggerNames);
+                SetFileAppender(outputDirectory, excludeLoggerNames);
             }
         }
 
-        private static void configure_info_logging_colors()
+        private static void ConfigureLoggingInfoColors()
         {
             try
             {
@@ -102,7 +102,7 @@ namespace chocolatey.infrastructure.logging
                 var bgColor = Console.BackgroundColor;
                 var fgColor = Console.ForegroundColor;
                 ILoggerRepository logRepository = LogManager.GetRepository(Assembly.GetCallingAssembly().UnderlyingType);
-                foreach (var append in logRepository.GetAppenders().Where(a => a.Name.is_equal_to(NORMAL_LOGGING_COLORED_APPENDER)).or_empty_list_if_null())
+                foreach (var append in logRepository.GetAppenders().Where(a => a.Name.IsEqualTo(NormalLoggingColoredAppender)).OrEmpty())
                 {
                     var appender = append as ManagedColoredConsoleAppender;
                     if (appender != null)
@@ -156,7 +156,7 @@ namespace chocolatey.infrastructure.logging
                     }
                 }
 
-                foreach (var append in logRepository.GetAppenders().Where(a => a.Name.is_equal_to(IMPORTANT_LOGGING_COLORED_APPENDER)).or_empty_list_if_null())
+                foreach (var append in logRepository.GetAppenders().Where(a => a.Name.IsEqualTo(ImportantLoggingColoredAppender)).OrEmpty())
                 {
                     var appender = append as ManagedColoredConsoleAppender;
                     if (appender != null)
@@ -206,32 +206,35 @@ namespace chocolatey.infrastructure.logging
         /// </summary>
         /// <param name="outputDirectory">The output directory.</param>
         /// <param name="excludeLoggerNames">Loggers, such as a trace logger, to exclude from file appender.</param>
-        private static void set_file_appender(string outputDirectory, params string[] excludeLoggerNames)
+        private static void SetFileAppender(string outputDirectory, params string[] excludeLoggerNames)
         {
-            if (excludeLoggerNames == null) excludeLoggerNames = new string[] {};
+            if (excludeLoggerNames == null)
+            {
+                excludeLoggerNames = new string[] { };
+            }
 
             if (!_alreadyConfiguredFileAppender)
             {
                 _alreadyConfiguredFileAppender = true;
 
                 var layout = new PatternLayout
-                    {
-                        ConversionPattern = "%date %property{pid} [%-5level] - %message%newline"
-                    };
+                {
+                    ConversionPattern = "%date %property{pid} [%-5level] - %message%newline"
+                };
                 layout.ActivateOptions();
 
                 var app = new RollingFileAppender
-                    {
-                        Name = "{0}.changes.log.appender".format_with(ApplicationParameters.Name),
-                        File = Path.Combine(Path.GetFullPath(outputDirectory), ApplicationParameters.LoggingFile),
-                        Layout = layout,
-                        AppendToFile = true,
-                        RollingStyle = RollingFileAppender.RollingMode.Size,
-                        MaxFileSize = 1024 * 1024 * 10,
-                        MaxSizeRollBackups = 50,
-                        LockingModel = new FileAppender.MinimalLock(),
-                        PreserveLogFileNameExtension = true,
-                    };
+                {
+                    Name = "{0}.changes.log.appender".FormatWith(ApplicationParameters.Name),
+                    File = Path.Combine(Path.GetFullPath(outputDirectory), ApplicationParameters.LoggingFile),
+                    Layout = layout,
+                    AppendToFile = true,
+                    RollingStyle = RollingFileAppender.RollingMode.Size,
+                    MaxFileSize = 1024 * 1024 * 10,
+                    MaxSizeRollBackups = 50,
+                    LockingModel = new FileAppender.MinimalLock(),
+                    PreserveLogFileNameExtension = true,
+                };
                 app.ActivateOptions();
 
                 var infoOnlyAppender = new RollingFileAppender
@@ -250,7 +253,7 @@ namespace chocolatey.infrastructure.logging
                 infoOnlyAppender.ActivateOptions();
 
                 ILoggerRepository logRepository = LogManager.GetRepository(Assembly.GetCallingAssembly().UnderlyingType);
-                foreach (ILogger log in logRepository.GetCurrentLoggers().Where(l => excludeLoggerNames.All(name => !l.Name.is_equal_to(name))).or_empty_list_if_null())
+                foreach (ILogger log in logRepository.GetCurrentLoggers().Where(l => excludeLoggerNames.All(name => !l.Name.IsEqualTo(name))).OrEmpty())
                 {
                     var logger = log as Logger;
                     if (logger != null)
@@ -269,9 +272,12 @@ namespace chocolatey.infrastructure.logging
         ///   if set to <c>true</c> [enable debug].
         /// </param>
         /// <param name="excludeAppenderNames">Appenders, such as a verbose console appender, to exclude from debug.</param>
-        public static void set_logging_level_debug_when_debug(bool enableDebug, params string[] excludeAppenderNames)
+        public static void EnableDebugLoggingIf(bool enableDebug, params string[] excludeAppenderNames)
         {
-            if (excludeAppenderNames == null) excludeAppenderNames = new string[] { };
+            if (excludeAppenderNames == null)
+            {
+                excludeAppenderNames = new string[] { };
+            }
 
             if (enableDebug)
             {
@@ -286,10 +292,10 @@ namespace chocolatey.infrastructure.logging
                     }
                 }
 
-                foreach (var append in logRepository.GetAppenders().Where(a => excludeAppenderNames.All(name => !a.Name.is_equal_to(name))).or_empty_list_if_null())
+                foreach (var append in logRepository.GetAppenders().Where(a => excludeAppenderNames.All(name => !a.Name.IsEqualTo(name))).OrEmpty())
                 {
                     var appender = append as AppenderSkeleton;
-                    if (appender != null && !appender.Name.is_equal_to(_summaryLogAppenderName))
+                    if (appender != null && !appender.Name.IsEqualTo(_summaryLogAppenderName))
                     {
                         // slightly naive implementation
                         appender.ClearFilters();
@@ -306,7 +312,7 @@ namespace chocolatey.infrastructure.logging
         /// </param>
         /// <param name="enableDebug">If debug is also enabled</param>
         /// <param name="verboseLoggerName">Name of the verbose logger.</param>
-        public static void set_verbose_logger_when_verbose(bool enableVerbose, bool enableDebug, string verboseLoggerName)
+        public static void EnableVerboseLoggingIf(bool enableVerbose, bool enableDebug, string verboseLoggerName)
         {
             if (enableVerbose)
             {
@@ -314,7 +320,7 @@ namespace chocolatey.infrastructure.logging
                 foreach (var append in logRepository.GetAppenders())
                 {
                     var appender = append as AppenderSkeleton;
-                    if (appender != null && appender.Name.is_equal_to(verboseLoggerName))
+                    if (appender != null && appender.Name.IsEqualTo(verboseLoggerName))
                     {
                         appender.ClearFilters();
                         var minLevel = enableDebug ? Level.Debug : Level.Info;
@@ -329,7 +335,7 @@ namespace chocolatey.infrastructure.logging
         /// </summary>
         /// <param name="enableTrace">if set to <c>true</c> [enable trace].</param>
         /// <param name="traceLoggerName">Name of the trace logger.</param>
-        public static void set_trace_logger_when_trace(bool enableTrace, string traceLoggerName)
+        public static void EnableTraceLoggingIf(bool enableTrace, string traceLoggerName)
         {
             if (enableTrace)
             {
@@ -343,22 +349,25 @@ namespace chocolatey.infrastructure.logging
                 foreach (var append in logRepository.GetAppenders())
                 {
                     var appender = append as AppenderSkeleton;
-                    if (appender != null && appender.Name.is_equal_to(traceLoggerName))
+                    if (appender != null && appender.Name.IsEqualTo(traceLoggerName))
                     {
                         appender.ClearFilters();
                         var minLevel = Level.Debug;
                         appender.AddFilter(new log4net.Filter.LevelRangeFilter { LevelMin = minLevel, LevelMax = Level.Fatal });
                     }
 
-                    if (appender != null && appender.GetType() == typeof(RollingFileAppender)) fileAppenders.Add(appender);
+                    if (appender != null && appender.GetType() == typeof(RollingFileAppender))
+                    {
+                        fileAppenders.Add(appender);
+                    }
                 }
 
-                foreach (ILogger log in logRepository.GetCurrentLoggers().Where(l => l.Name.is_equal_to("Trace")).or_empty_list_if_null())
+                foreach (ILogger log in logRepository.GetCurrentLoggers().Where(l => l.Name.IsEqualTo("Trace")).OrEmpty())
                 {
                     var logger = log as Logger;
                     if (logger != null)
                     {
-                        foreach (var appender in fileAppenders.or_empty_list_if_null())
+                        foreach (var appender in fileAppenders.OrEmpty())
                         {
                             logger.AddAppender(appender);
                         }
@@ -368,7 +377,7 @@ namespace chocolatey.infrastructure.logging
                 foreach (var append in logRepository.GetAppenders())
                 {
                     var appender = append as AppenderSkeleton;
-                    if (appender != null && appender.Name.is_equal_to("{0}.changes.log.appender".format_with(ApplicationParameters.Name)))
+                    if (appender != null && appender.Name.IsEqualTo("{0}.changes.log.appender".FormatWith(ApplicationParameters.Name)))
                     {
                         var traceLayout = new PatternLayout
                         {
@@ -382,13 +391,20 @@ namespace chocolatey.infrastructure.logging
             }
         }
 
-        public static void configure_additional_log_file(string logFileLocation)
+        public static void SetupAdditionalLogFile(string logFileLocation)
         {
-            if (string.IsNullOrWhiteSpace(logFileLocation)) return;
+            if (string.IsNullOrWhiteSpace(logFileLocation))
+            {
+                return;
+            }
 
             var logDirectory = Path.GetDirectoryName(logFileLocation);
             var logFileName = Path.GetFileNameWithoutExtension(logFileLocation);
-            if (!string.IsNullOrWhiteSpace(logDirectory) && !Directory.Exists(logDirectory)) Directory.CreateDirectory(logDirectory);
+            if (!string.IsNullOrWhiteSpace(logDirectory) && !Directory.Exists(logDirectory))
+            {
+                Directory.CreateDirectory(logDirectory);
+            }
+
             var layout = new PatternLayout
             {
                 ConversionPattern = "%date %property{pid} [%-5level] - %message%newline"
@@ -397,7 +413,7 @@ namespace chocolatey.infrastructure.logging
 
             var app = new FileAppender()
             {
-                Name = "{0}.{1}.log.appender".format_with(ApplicationParameters.Name, logFileName),
+                Name = "{0}.{1}.log.appender".FormatWith(ApplicationParameters.Name, logFileName),
                 File = logFileLocation,
                 Layout = layout,
                 AppendToFile = true,
@@ -406,7 +422,7 @@ namespace chocolatey.infrastructure.logging
             app.ActivateOptions();
 
             ILoggerRepository logRepository = LogManager.GetRepository(Assembly.GetCallingAssembly().UnderlyingType);
-            foreach (ILogger log in logRepository.GetCurrentLoggers().Where(l => !l.Name.is_equal_to("Trace")).or_empty_list_if_null())
+            foreach (ILogger log in logRepository.GetCurrentLoggers().Where(l => !l.Name.IsEqualTo("Trace")).OrEmpty())
             {
                 var logger = log as Logger;
                 if (logger != null)
@@ -414,7 +430,32 @@ namespace chocolatey.infrastructure.logging
                     logger.AddAppender(app);
                 }
             }
-
         }
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public static void initialize_with(Lazy<IConsole> console)
+            => InitializeWith(console);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public static void configure(string outputDirectory = null, params string[] excludeLoggerNames)
+            => Configure(outputDirectory, excludeLoggerNames);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public static void set_logging_level_debug_when_debug(bool enableDebug, params string[] excludeAppenderNames)
+            => EnableDebugLoggingIf(enableDebug, excludeAppenderNames);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public static void set_verbose_logger_when_verbose(bool enableVerbose, bool enableDebug, string verboseLoggerName)
+            => EnableVerboseLoggingIf(enableVerbose, enableDebug, verboseLoggerName);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public static void set_trace_logger_when_trace(bool enableTrace, string traceLoggerName)
+            => EnableTraceLoggingIf(enableTrace, traceLoggerName);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public static void configure_additional_log_file(string logFileLocation)
+            => SetupAdditionalLogFile(logFileLocation);
+#pragma warning restore IDE0022, IDE1006
     }
 }

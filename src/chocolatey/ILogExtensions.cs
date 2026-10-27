@@ -1,27 +1,25 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Runtime;
+using chocolatey.infrastructure.logging;
+
 namespace chocolatey
 {
-    using System;
-    using System.Runtime;
-    using infrastructure.logging;
-
-    // ReSharper disable InconsistentNaming
-
     /// <summary>
     ///   Extensions for ILog
     /// </summary>
@@ -33,15 +31,25 @@ namespace chocolatey
         public static bool LogTraceMessages = true;
 
         [TargetedPatchingOptOut("Performance critical to inline this type of method across NGen image boundaries")]
+#pragma warning disable IDE0060 // Unused method parameter
         public static void Trace(this ILog logger, string message, params object[] formatting)
+#pragma warning restore IDE0060 // Unused method parameter
         {
-           if (LogTraceMessages) ChocolateyLoggers.Trace.to_string().Log().Debug(message, formatting);
+            if (LogTraceMessages)
+            {
+                ChocolateyLoggers.Trace.ToStringSafe().Log().Debug(message, formatting);
+            }
         }
 
         [TargetedPatchingOptOut("Performance critical to inline this type of method across NGen image boundaries")]
+#pragma warning disable IDE0060 // Unused method parameter
         public static void Trace(this ILog logger, Func<string> message)
+#pragma warning restore IDE0060 // Unused method parameter
         {
-            if (LogTraceMessages) ChocolateyLoggers.Trace.to_string().Log().Debug(message);
+            if (LogTraceMessages)
+            {
+                ChocolateyLoggers.Trace.ToStringSafe().Log().Debug(message);
+            }
         }
 
         [TargetedPatchingOptOut("Performance critical to inline this type of method across NGen image boundaries")]
@@ -54,10 +62,10 @@ namespace chocolatey
                     logger.Debug(message, formatting);
                     break;
                 case ChocolateyLoggers.Trace:
-                    Trace(logger,message,formatting);
+                    Trace(logger, message, formatting);
                     break;
                 default:
-                    logType.to_string().Log().Debug(message, formatting);
+                    logType.ToStringSafe().Log().Debug(message, formatting);
                     break;
             }
         }
@@ -74,7 +82,7 @@ namespace chocolatey
                     Trace(logger, message);
                     break;
                 default:
-                    logType.to_string().Log().Debug(message);
+                    logType.ToStringSafe().Log().Debug(message);
                     break;
             }
         }
@@ -91,7 +99,7 @@ namespace chocolatey
                     Trace(logger, message, formatting);
                     break;
                 default:
-                    logType.to_string().Log().Info(message, formatting);
+                    logType.ToStringSafe().Log().Info(message, formatting);
                     break;
             }
         }
@@ -108,7 +116,7 @@ namespace chocolatey
                     Trace(logger, message);
                     break;
                 default:
-                    logType.to_string().Log().Info(message);
+                    logType.ToStringSafe().Log().Info(message);
                     break;
             }
         }
@@ -125,7 +133,7 @@ namespace chocolatey
                     Trace(logger, message, formatting);
                     break;
                 default:
-                    logType.to_string().Log().Warn(message, formatting);
+                    logType.ToStringSafe().Log().Warn(message, formatting);
                     break;
             }
         }
@@ -142,7 +150,7 @@ namespace chocolatey
                     Trace(logger, message);
                     break;
                 default:
-                    logType.to_string().Log().Warn(message);
+                    logType.ToStringSafe().Log().Warn(message);
                     break;
             }
         }
@@ -159,7 +167,7 @@ namespace chocolatey
                     Trace(logger, message, formatting);
                     break;
                 default:
-                    logType.to_string().Log().Error(message, formatting);
+                    logType.ToStringSafe().Log().Error(message, formatting);
                     break;
             }
         }
@@ -176,7 +184,7 @@ namespace chocolatey
                     Trace(logger, message);
                     break;
                 default:
-                    logType.to_string().Log().Error(message);
+                    logType.ToStringSafe().Log().Error(message);
                     break;
             }
         }
@@ -193,7 +201,7 @@ namespace chocolatey
                     Trace(logger, message, formatting);
                     break;
                 default:
-                    logType.to_string().Log().Fatal(message, formatting);
+                    logType.ToStringSafe().Log().Fatal(message, formatting);
                     break;
             }
         }
@@ -210,12 +218,9 @@ namespace chocolatey
                     Trace(logger, message);
                     break;
                 default:
-                    logType.to_string().Log().Fatal(message);
+                    logType.ToStringSafe().Log().Fatal(message);
                     break;
             }
         }
     }
-
-
-    // ReSharper restore InconsistentNaming
 }

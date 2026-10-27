@@ -1,4 +1,4 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,12 +14,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using chocolatey.infrastructure.app.configuration;
+using chocolatey.infrastructure.validations;
+
 namespace chocolatey.infrastructure.app.validations
 {
-    using System.Collections.Generic;
-    using configuration;
-    using infrastructure.validations;
-
     /// <summary>
     ///   Performs top level validation checks against the current
     ///   Chocolatey Configuration object to ensure that everything is
@@ -28,12 +29,12 @@ namespace chocolatey.infrastructure.app.validations
     /// </summary>
     public class GlobalConfigurationValidation : IValidation
     {
-        public ICollection<ValidationResult> validate(ChocolateyConfiguration config)
+        public ICollection<ValidationResult> Validate(ChocolateyConfiguration config)
         {
             this.Log().Debug("Global Configuration Validation Checks:");
             var validationResults = new List<ValidationResult>();
 
-            check_usage_of_package_exit_code(config, validationResults);
+            ValidateUseOfPackageExitCode(config, validationResults);
 
             if (validationResults.Count == 0)
             {
@@ -48,7 +49,7 @@ namespace chocolatey.infrastructure.app.validations
             return validationResults;
         }
 
-        private void check_usage_of_package_exit_code(ChocolateyConfiguration config, ICollection<ValidationResult> validationResults)
+        private void ValidateUseOfPackageExitCode(ChocolateyConfiguration config, ICollection<ValidationResult> validationResults)
         {
             var validationStatusResult = ValidationStatus.Checked;
             // In order for a Chocolatey execution to correctly halt
@@ -63,14 +64,14 @@ namespace chocolatey.infrastructure.app.validations
                     Message = @"When attempting to halt execution of a Chocolatey command based on a
    request for a system reboot, it is necessary to have the
    usePackageExitCodes feature enabled.  Use the following command:
-     choco feature enable -name={0} 
+     choco feature enable --name=""{0}""
    to enable this feature (exit code 1).
-".format_with(ApplicationParameters.Features.UsePackageExitCodes),
+".FormatWith(ApplicationParameters.Features.UsePackageExitCodes),
                     Status = ValidationStatus.Error,
                     ExitCode = 1
                 };
 
-                var commandsToErrorOn = new List<string> {"install", "uninstall", "upgrade"};
+                var commandsToErrorOn = new List<string> { "install", "uninstall", "upgrade" };
                 if (!commandsToErrorOn.Contains(config.CommandName.ToLowerInvariant()))
                 {
                     validationResult.Status = ValidationStatus.Warning;
@@ -80,7 +81,13 @@ namespace chocolatey.infrastructure.app.validations
                 validationResults.Add(validationResult);
             }
 
-            this.Log().Debug(" - Package Exit Code / Exit On Reboot = {0}".format_with(validationStatusResult.to_string()));
+            this.Log().Debug(" - Package Exit Code / Exit On Reboot = {0}".FormatWith(validationStatusResult.ToStringSafe()));
         }
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public ICollection<ValidationResult> validate(ChocolateyConfiguration config)
+            => Validate(config);
+#pragma warning restore IDE0022, IDE1006
     }
 }

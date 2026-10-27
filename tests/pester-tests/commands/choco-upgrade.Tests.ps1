@@ -1,0 +1,1116 @@
+﻿Describe "choco upgrade" -Tag Chocolatey, UpgradeCommand, CCR {
+    BeforeAll {
+        Remove-NuGetPaths
+        Initialize-ChocolateyTestInstall
+        Disable-ChocolateySource -All
+        Enable-ChocolateySource -Name hermes
+        # Packages that are on hermes-setup that may have updates not intended to be tested here. Exclude them from
+        # upgrade all so a newer product version on the hermes-setup source doesn't get upgraded.
+        $ExceptPackages = 'chocolatey,chocolatey.extension,chocolatey-agent,pester,chocolatey-license-business'
+
+        New-ChocolateyInstallSnapshot
+        $features = Get-ChocolateyFeatures
+    }
+
+    AfterAll {
+        Remove-ChocolateyTestInstall
+    }
+
+    Context "Upgrade pinned package using (<Command>) option" -ForEach @(
+        @{ Command = '--ignore-pinned' ; Contains = $true }
+        @{ Command = '' ; Contains = $false }
+    ) {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $Package = 'upgradepackage'
+
+            # This test relies on the correct usage of the --pin option on the install
+            # command, but this is tested elsewhere
+            $null = Invoke-Choco install $Package --pin --version 1.0.0 --confirm
+            $null = Invoke-Choco upgrade $Package $Command --confirm
+            $Output = Invoke-Choco pin list
+        }
+
+        It "Exits with Success (0)" {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It "Output should include upgraded package, with new pin in place" {
+            if ($Contains) {
+                $Output.String | Should -Match "$Package|1.1.0"
+            }
+            else {
+                $Output.String | Should -Match "$Package|1.0.0"
+            }
+        }
+    }
+
+    Context "Upgrade package with (<Command>) specified" -ForEach @(
+        @{ Command = '--pin' ; Contains = $true }
+        @{ Command = '' ; Contains = $false }
+    ) {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $Package = 'upgradepackage'
+            $null = Invoke-Choco install $Package --version 1.0.0 --confirm
+            $null = Invoke-Choco upgrade $Package $Command --confirm
+            $Output = Invoke-Choco pin list
+        }
+
+        It "Exits with Success (0)" {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It "Output should include pinned package" {
+            if ($Contains) {
+                $Output.String | Should -Match "$Package|1.1.0"
+            }
+            else {
+                $Output.String | Should -Not -Match "$Package|1.1.0"
+            }
+        }
+    }
+
+    Context "Upgrading packages while remembering arguments with only one package using arguments" -Tag Internal {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $null = Enable-ChocolateyFeature useRememberedArgumentsForUpgrades
+            Enable-ChocolateySource -Name hermes-setup
+            $null = Invoke-Choco install curl --package-parameters="'/CurlOnlyParam'" --version="7.77.0" --ia="'/CurlIAParam'" --x86 -y
+            $null = Invoke-Choco install wget --version=1.21.1 -y
+
+            $Output = Invoke-Choco upgrade all -y --debug --except="$ExceptPackages"
+        }
+
+        It 'Exits with Success (0)' {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It 'Outputs running curl script with correct arguments' {
+            $line = $Output.Lines | Where-Object { $_ -match "packageScript.*curl\\tools" } | Select-Object -Last 1
+
+            $line | Should -Not -BeNullOrEmpty
+            $line | Should -MatchExactly "\/CurlIAParam"
+            $line | Should -MatchExactly "\/CurlOnlyParam"
+            $line | Should -Match "-forceX86"
+        }
+
+        It 'Outputs running wget script with correct arguments' {
+            $line = $Output.Lines | Where-Object { $_ -match "packageScript.*wget\\tools" }
+
+            $line | Should -Not -BeNullOrEmpty
+            $line | Should -Match "installArguments:? ''"
+            $line | Should -Match "packageParameters:? ''"
+            $line | Should -Not -Match "-forceX86"
+        }
+    }
+
+    Context "Should include configured sources" {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            Enable-ChocolateySource -Name hermes-setup
+            $null = Invoke-Choco install wget
+
+            $Output = Invoke-Choco upgrade wget --include-configured-sources --debug
+        }
+
+        It "Exits with Success (0)" {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It "Should mention that configured sources have been included" {
+            $Output.Lines | Should -Contain "Including sources from chocolatey.config file." -Because $Output.String
+        }
+    }
+
+    Context "Attempt to upgrade a package when there isn't an upgrade available" -Tag Internal {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            Enable-ChocolateySource -Name hermes-setup
+            $null = Invoke-Choco install wget
+
+            $Output = Invoke-Choco upgrade wget
+        }
+
+        It 'Exits with Success (0)' {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It 'Displays that upgrade was attempted but wasnt required' {
+            $Output.Lines | Should -Contain "Chocolatey upgraded 0/1 packages." -Because $Output.String
+        }
+
+        Context "when using enhanced exit codes" {
+            BeforeAll {
+                $null = Enable-ChocolateyFeature -Name "useEnhancedExitCodes"
+
+                $Output = Invoke-Choco upgrade wget
+            }
+
+            It "Exits with ExitCode 2" {
+                $Output.ExitCode | Should -Be 2 -Because $Output.String
+            }
+
+            It 'Displays that upgrade was attempted but wasnt required' {
+                $Output.Lines | Should -Contain "Chocolatey upgraded 0/1 packages." -Because $Output.String
+            }
+        }
+    }
+
+    Context "Attempt to run upgrade all when there isn't any upgrade available" -Tag Internal {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            Enable-ChocolateySource -Name hermes-setup
+            $null = Invoke-Choco install wget
+            $null = Invoke-Choco install curl
+
+            # Exclude packages not involved in these tests to ensure that they don't report false positives
+            $Output = Invoke-Choco upgrade all --except="$ExceptPackages"
+        }
+
+        It 'Exits with Success (0)' {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It 'Displays that upgrade was attempted but wasnt required' {
+            $Output.String | Should -MatchExactly "Chocolatey upgraded 0"
+        }
+
+        Context "when using enhanced exit codes" {
+            BeforeAll {
+                $null = Enable-ChocolateyFeature -Name "useEnhancedExitCodes"
+
+                $Output = Invoke-Choco upgrade all --except="$ExceptPackages"
+            }
+
+            It "Exits with ExitCode 2" {
+                $Output.ExitCode | Should -Be 2 -Because $Output.String
+            }
+
+            It 'Displays that upgrade was attempted but wasnt required' {
+                $Output.String | Should -MatchExactly "Chocolatey upgraded 0"
+            }
+        }
+    }
+
+    # We exclude this test when running CCM, as it will install and remove
+    # the firefox package which is used through other tests that will be affected.
+    Context "Upgrading packages while remembering arguments with multiple packages using arguments" -Tag CCMExcluded, Internal, VMOnly {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $null = Enable-ChocolateyFeature useRememberedArgumentsForUpgrades
+            Enable-ChocolateySource -Name hermes-setup
+            $null = Invoke-Choco install curl --package-parameters="'/CurlOnlyParam'" --version="7.77.0" --ia="'/CurlIAParam'" --forcex86 -y
+            $null = Invoke-Choco install wget --version=1.21.1 -y --forcex86
+            $null = Invoke-Choco install firefox --version=99.0.1 --package-parameters="'/l=eu'" -y --ia="'/RemoveDistributionDir=true'"
+
+            $Output = Invoke-Choco upgrade all -y --debug --except="$ExceptPackages"
+        }
+
+        AfterAll {
+            $null = Invoke-Choco uninstall firefox -y
+        }
+
+        It 'Exits with Success (0)' {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It 'Outputs running curl script with correct arguments' {
+            $line = $Output.Lines | Where-Object { $_ -match "packageScript.*curl\\tools" } | Select-Object -Last 1
+
+            $line | Should -Not -BeNullOrEmpty
+            $line | Should -Match "installArguments:? '/CurlIAParam'"
+            $line | Should -Match "packageParameters:? '/CurlOnlyParam'"
+            $line | Should -Match "-forceX86"
+        }
+
+        It 'Outputs running wget script with correct arguments' {
+            $line = $Output.Lines | Where-Object { $_ -match "packageScript.*wget\\tools" } | Select-Object -Last 1
+
+            $line | Should -Not -BeNullOrEmpty
+            $line | Should -Match "installArguments:? ''"
+            $line | Should -Match "packageParameters:? ''"
+            $line | Should -Match "-forceX86"
+        }
+
+        It 'Outputs firefox using eu as language locale' {
+            $Output.Lines | Should -Contain "Using locale 'eu'..." -Because $Output.String
+        }
+
+        It 'Outputs running firefox script with correct arguments' {
+            $line = $Output.Lines | Where-Object { $_ -match "packageScript.*firefox\\tools" }
+
+            $line | Should -Not -BeNullOrEmpty
+            $line | Should -Match "installArguments:? '\/RemoveDistributionDir=true'"
+            $line | Should -Match "packageParameters:? '\/l=eu'"
+            $line | Should -Not -Match "-forceX86"
+        }
+    }
+
+    Context "Upgrading multiple packages at once" {
+
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $PackageUnderTest = "installpackage", "packagewithscript"
+
+            $Output = Invoke-Choco upgrade @PackageUnderTest --confirm
+        }
+
+        It "Installs successfully and exits with success (0)" {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It "Installed the packages to the lib directory" {
+            $PackageUnderTest | ForEach-Object {
+                "$env:ChocolateyInstall\lib\$_" | Should -Exist
+            }
+        }
+    }
+
+    Context "Upgrading a Package from a nupkg file" {
+        BeforeAll {
+            $snapshotPath = New-ChocolateyInstallSnapshot
+
+            $PackageUnderTest = "installpackage"
+
+            New-ChocolateyTestPackage `
+                -TestPath "$PSScriptRoot\testpackages" `
+                -Name $PackageUnderTest `
+                -Version "1.0.0"
+
+            $PackagePath = "$($snapshotPath.PackagesPath)\$PackageUnderTest.1.0.0.nupkg"
+
+            $Output = Invoke-Choco upgrade $PackagePath --confirm --params '/ParameterOne:FirstOne /ParameterTwo:AnotherOne'
+        }
+
+        It "Exits with Failure (1)" {
+            $Output.ExitCode | Should -Be 1 -Because $Output.String
+        }
+
+        It "Not Installed a package to the lib directory" {
+            "$env:ChocolateyInstall\lib\$PackageUnderTest" | Should -Not -Exist
+        }
+
+        It "Not Installed a package to the lib bad directory" {
+            "$env:ChocolateyInstall\lib-bad\$PackageUnderTest" | Should -Not -Exist
+        }
+
+        It "Not Installed a package to the lib backup directory" {
+            "$env:ChocolateyInstall\lib-backup\$PackageUnderTest" | Should -Not -Exist
+        }
+
+        It "Outputs expected error message" {
+            $Output.String | Should -Match @"
+Package name cannot be a path to a file on a remote, or local file system.
+
+To upgrade a local, or remote file, you may use:
+  choco upgrade $packageUnderTest --version="1.0.0" --source="$([regex]::Escape($snapshotPath.PackagesPath))
+"@
+        }
+    }
+
+    # We are marking this test as internal, as the package we need to make use
+    # of downloads a zip archive from a internal server, and the package is also
+    # only located on an internal feed.
+    # Exclude from CCR testing as `install-chocolateyzip` is not seeded, and this test validates CLI internals.
+    Context "Upgrading non-existing package while specifying a cache location (Arg: <_>)" -ForEach '-c', '--cache', '--cachelocation', '--cache-location' -Tag Internal, LongPaths, CacheLocation, CCRExcluded {
+        BeforeAll {
+            $paths = Restore-ChocolateyInstallSnapshot
+
+            $Output = Invoke-Choco upgrade install-chocolateyzip --version 3.21.2 --confirm "$_" "$($paths.CachePathLong)" --no-progress
+        }
+
+        AfterAll {
+            $null = Invoke-Choco uninstall install-chocolateyzip --confirm
+        }
+
+        It 'Exits with Success (0)' {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It 'Runs under background Service' -Tag Background {
+            $Output.Lines | Should -Contain 'Running in background mode' -Because $Output.String
+        }
+
+        It 'Outputs downloading 64bit package' {
+            $Output.Lines | Should -Contain 'Downloading install-chocolateyzip 64 bit' -Because $Output.String
+        }
+
+        It 'Outputs download completed' {
+            $testMessage = if ($features.License) {
+                "Download of 'cmake-3.21.2-windows-x86_64.zip' (36.01 MB) completed."
+            } else {
+                "Download of cmake-3.21.2-windows-x86_64.zip (36.01 MB) completed."
+            }
+            $Output.Lines | Should -Contain $testMessage -Because $Output.String
+        }
+
+        It 'Outputs extracting correct archive' {
+            $testMessage = if ($features.License) {
+                "Extracting cmake-3.21.2-windows-x86_64.zip to $env:ChocolateyInstall\lib\install-chocolateyzip\tools..."
+            } else {
+                "Extracting $($paths.CachePathLong)\install-chocolateyzip\3.21.2\cmake-3.21.2-windows-x86_64.zip to $env:ChocolateyInstall\lib\install-chocolateyzip\tools..."
+            }
+            $Output.Lines | Should -Contain $testMessage -Because $Output.String
+        }
+
+        It 'Created shim for <_>' -ForEach 'cmake-gui.exe', 'cmake.exe', 'cmcldeps.exe', 'cpack.exe', 'ctest.exe' {
+            $Output.Lines | Should -Contain "ShimGen has successfully created a shim for $_"
+            "$env:ChocolateyInstall\bin\$_" | Should -Exist
+        }
+
+        It 'Outputs upgrading was successful' {
+            $Output.Lines | Should -Contain 'The upgrade of install-chocolateyzip was successful.' -Because $Output.String
+        }
+
+        It 'Outputs software installation directory' {
+            $Output.Lines | Should -Contain "Deployed to '$env:ChocolateyInstall\lib\install-chocolateyzip\tools'" -Because $Output.String
+        }
+
+        It 'Should have cached installed directory in custom cache' {
+            # Need to be verified, but the file may not exist on licensed edition
+            "$($paths.CachePathLong)\install-chocolateyzip\3.21.2\cmake-3.21.2-windows-x86_64.zip" | Should -Exist
+        }
+
+        It 'Installed software to expected directory' {
+            "$env:ChocolateyInstall\lib\install-chocolateyzip\tools\cmake-3.21.2-windows-x86_64\bin\cmake.exe" | Should -Exist
+        }
+    }
+
+    Context "Upgrading a package when invalid package source is being used" {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $null = Invoke-Choco install upgradepackage --version 1.0.0 --confirm
+            $InvalidSource = "https://invalid.chocolatey.org/api/v2/"
+            $null = Invoke-Choco source add -n "invalid" -s $InvalidSource
+
+            $Output = Invoke-Choco upgrade upgradepackage --confirm
+        }
+
+        AfterAll {
+            Remove-ChocolateyInstallSnapshot
+        }
+
+
+        # `upgradepackage` contains a beforeModify that throws, which triggers an incorrect -1 exit code.
+        # See https://app.clickup.com/t/20540031/PROJ-615
+        It 'Exits with Success (0)' -Tag Broken {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It 'Outputs warning about unable to load service index' {
+            $Output.Lines | Should -Contain "Unable to load the service index for source $InvalidSource."
+        }
+
+        It 'Outputs successful installation of single package' {
+            $Output.Lines | Should -Contain 'Chocolatey upgraded 1/1 packages.'
+        }
+    }
+
+    Context "Upgrading package should not downgrade existing package" {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+            $DependentPackageName = 'isdependency'
+
+            $null = Invoke-Choco install $DependentPackageName --version 1.1.0 --confirm
+            $null = Invoke-Choco install hasdependency --version 1.0.0 --confirm
+
+            $Output = Invoke-Choco upgrade hasdependency
+            $Packages = (Invoke-Choco list -r).Lines | ConvertFrom-ChocolateyOutput -Command List
+            $DependentPackage = $Packages | Where-Object Name -EQ $DependentPackageName
+        }
+
+        AfterAll {
+            Remove-ChocolateyInstallSnapshot
+        }
+
+        It 'Exits with Success (0)' {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It 'should not have downgraded isdependency' {
+            Test-VersionEqualOrHigher -InstalledVersion $DependentPackage.Version -CompareVersion 1.1.0 | Should -BeTrue
+        }
+    }
+
+    Context "Upgrading a failing package creates creates bad backup and rolls back lib directory" {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $PackageUnderTest = "failingdependency"
+            $PackageVersion = '1.0.0'
+
+            $null = Invoke-Choco install $PackageUnderTest --version 0.9.9 -n
+
+            $Output = Invoke-Choco upgrade $PackageUnderTest --version $PackageVersion --confirm
+        }
+
+        It "Exits with Failure (15608)" {
+            $Output.ExitCode | Should -Be 15608 -Because $Output.String
+        }
+
+        It "Doesn't keep a package backup in lib-bkp" {
+            "$env:ChocolateyInstall\lib-bkp\$PackageUnderTest" | Should -Not -Exist
+        }
+
+        It "Creates backup of file '<_>' in lib-bad" -ForEach @('failingdependency.nupkg', 'failingdependency.nuspec', '.chocolateyPending', 'tools\chocolateyinstall.ps1') {
+            "$env:ChocolateyInstall\lib-bad\$PackageUnderTest\$PackageVersion\$_" | Should -Exist
+        }
+
+        It "Outputs a message showing that installation failed." {
+            $Output.String | Should -Match "Chocolatey upgraded 0/1 packages\."
+        }
+    }
+
+    # Exclude from CCR testing as `hasinnoinstaller` is not seeded, and this test validates CLI internals.
+    Context "Upgrading a package when installer is locked" -Tag CCRExcluded {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $PackageUnderTest = "hasinnoinstaller"
+            $PackageVersion   = '6.2.0.3'
+
+            # We are purposely using the --reduce-nupkg-only option (both here and in the next call to Invoke-Choco), to make the
+            # test as close to default operation, when running both in the context of OSS and CLE. It was found during testing, that
+            # the Package Optimizer would remove the application installer, which is the file that is being locked during the test,
+            # which means then that the test doesn't actually test what we want it to. We are locking the exe here instead of say a
+            # PowerShell script, is to simulate the exe being used when the test is running.
+            $null = Invoke-Choco install $PackageUnderTest --version 6.2.0.0 --confirm --no-progress --reduce-nupkg-only
+
+            $LockedFile = [System.IO.File]::Open("$env:ChocolateyInstall\lib\$PackageUnderTest\tools\helloworld-1.0.0.exe", 'Open', 'Read',
+            'Read')
+
+            $Output = Invoke-Choco upgrade $PackageUnderTest --version $PackageVersion --confirm --no-progress --reduce-nupkg-only
+        }
+
+        AfterAll {
+            $LockedFile.Dispose()
+            $null = Invoke-Choco uninstall $PackageUnderTest --confirm
+        }
+
+        It "Exits with Failure (1)" {
+            $Output.ExitCode | Should -Be 1 -Because $Output.String
+        }
+
+        It "Keeps file '<_>' in the lib directory" -ForEach @('hasinnoinstaller.nuspec', 'hasinnoinstaller.nupkg', 'tools\chocolateyinstall.ps1', 'tools\chocolateyuninstall.ps1', 'tools\helloworld-1.0.0.exe', 'tools\helloworld-1.0.0.exe.ignore') {
+            "$env:ChocolateyInstall\lib\$PackageUnderTest\$_" | Should -Exist
+        }
+
+        It "Doesn't keep a package backup in lib-bkp" {
+            "$env:ChocolateyInstall\lib-bkp\$PackageUnderTest" | Should -Not -Exist
+        }
+
+        # Only two files are backed up as we was not able to download and extract the new package
+        It "Creates backup of file '<_>' in lib-bad" -ForEach @('.chocolateyPending', 'tools\helloworld-1.0.0.exe') {
+            "$env:ChocolateyInstall\lib-bad\$PackageUnderTest\$PackageVersion\$_" | Should -Exist
+        }
+
+        It "Outputs a message showing that installation failed." {
+            $Output.Lines | Should -Contain "Chocolatey upgraded 0/1 packages. 1 packages failed."
+        }
+    }
+
+    # Exclude from CCR testing as `hasinnoinstaller` is not seeded, and this test validates CLI internals.
+    Context "Upgrading a package when non-package file is locked before initial installation" -Tag CCRExcluded {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $PackageUnderTest = "hasinnoinstaller"
+            $PackageVersion   = '6.2.0.3'
+
+            mkdir "$env:ChocolateyInstall\lib\$PackageUnderTest\tools"
+            $LockedFile = [System.IO.File]::Open("$env:ChocolateyInstall\lib\$PackageUnderTest\tools\a-locked-file.txt", 'OpenOrCreate', 'Read',
+            'Read')
+
+            # We are purposely using the --reduce-nupkg-only option here to make the test as close to default operation, when running
+            # both in the context of OSS and CLE. It was found during testing, that the Package Optimizer can remove files that are
+            # normally left in place, and this test is specifically for testing the back-up/restore process.
+            $null = Invoke-Choco install $PackageUnderTest --version 6.2.0.0 --confirm --no-progress --reduce-nupkg-only
+
+            $Output = Invoke-Choco upgrade $PackageUnderTest --version $PackageVersion --confirm --no-progress
+        }
+
+        AfterAll {
+            $LockedFile.Dispose()
+            $null = Invoke-Choco uninstall $PackageUnderTest --confirm
+        }
+
+        It "Exits with Failure (1)" {
+            $Output.ExitCode | Should -Be 1 -Because $Output.String
+        }
+
+        It "Keeps file '<_>' in the lib directory" -ForEach @('hasinnoinstaller.nuspec', 'hasinnoinstaller.nupkg', 'tools\chocolateyinstall.ps1', 'tools\chocolateyuninstall.ps1', 'tools\helloworld-1.0.0.exe', 'tools\helloworld-1.0.0.exe.ignore') {
+            "$env:ChocolateyInstall\lib\$PackageUnderTest\$_" | Should -Exist
+        }
+
+        It "Doesn't keep a package backup in lib-bkp" {
+            "$env:ChocolateyInstall\lib-bkp\$PackageUnderTest" | Should -Not -Exist
+        }
+
+        It "Creates backup of file '<_>' in lib-bad" -ForEach @('.chocolateyPending', 'tools\a-locked-file.txt') {
+            "$env:ChocolateyInstall\lib-bad\$PackageUnderTest\$PackageVersion\$_" | Should -Exist
+        }
+
+        It "Did not create backup of file '<_>' in lib-bad" -ForEach @('hasinnoinstaller.nuspec', 'tools\chocolateyinstall.ps1', 'tools\chocolateyuninstall.ps1', 'tools\helloworld-1.0.0.exe', 'helloworld-1.0.0.exe.ignore') {
+            "$env:ChocolateyInstall\lib-bad\$PackageUnderTest\$PackageVersion\$_" | Should -Not -Exist
+        }
+
+        It "Did not create backup of file 'hasinnoinstaller.nupkg' in lib-bad" -Tag FossOnly {
+            "$env:ChocolateyInstall\lib-bad\$PackageUnderTest\$PackageVersion\hasinnoinstaller.nupkg" | Should -Not -Exist
+        }
+
+        It "Outputs a message showing that installation failed." {
+            $Output.Lines | Should -Contain "Chocolatey upgraded 0/1 packages. 1 packages failed." -Because $Output.String
+        }
+    }
+
+    # Exclude from CCR testing as `hasinnoinstaller` is not seeded, and this test validates CLI internals.
+    Context "Upgrading a package when non-package file is locked after initial installation" -Tag CCRExcluded {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $PackageUnderTest = "hasinnoinstaller"
+            $PackageVersion   = '6.2.0.3'
+
+            $null = Invoke-Choco install $PackageUnderTest --version 6.2.0.0 --confirm --no-progress
+
+            $LockedFile = [System.IO.File]::Open("$env:ChocolateyInstall\lib\$PackageUnderTest\a-locked-file.txt", 'OpenOrCreate', 'Read',
+            'Read')
+
+            $Output = Invoke-Choco upgrade $PackageUnderTest --version $PackageVersion --confirm --no-progress
+        }
+
+        AfterAll {
+            $LockedFile.Dispose()
+            $null = Invoke-Choco uninstall $PackageUnderTest --confirm
+        }
+
+        It "Exits with Success (0)" {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It "Keeps have file '<_>' in the lib directory" -ForEach @('hasinnoinstaller.nuspec', 'hasinnoinstaller.nupkg', 'tools\chocolateyinstall.ps1', 'tools\chocolateyuninstall.ps1', 'tools\helloworld-1.0.0.exe', 'tools\helloworld-1.0.0.exe.ignore') {
+            "$env:ChocolateyInstall\lib\$PackageUnderTest\$_" | Should -Exist
+        }
+
+        It "Doesn't keep a package backup in lib-bkp" {
+            "$env:ChocolateyInstall\lib-bkp\$PackageUnderTest" | Should -Not -Exist
+        }
+
+        It "Doesn't keep a package backup in lib-bad" {
+            "$env:ChocolateyInstall\lib-bad\$PackageUnderTest" | Should -Not -Exist
+        }
+
+        It "Outputs a message showing that package was upgraded." {
+            $Output.Lines | Should -Contain "Chocolatey upgraded 1/1 packages." -Because $Output.String
+        }
+    }
+
+    Context "Upgrading a package where beforeModify fails still succeeds the installation" {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $PackageUnderTest = 'upgradepackage'
+
+            $null = Invoke-Choco install upgradepackage --version 1.0.0 --confirm
+
+            $Output = Invoke-Choco upgrade upgradepackage --confirm
+        }
+
+        # This was broken in v1.3.1
+        It "Exits with Success (0)" -Tag Broken {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It "Outputs a message showing that installation was successful" {
+            $Output.Lines | Should -Contain "Chocolatey upgraded 1/1 packages."
+        }
+
+        It "Outputs additiontal warning about before modify script" {
+            $Output.Lines | Should -Contain "- upgradepackage - v1.0.0 - Error while running the 'chocolateyBeforeModify.ps1'." -Because $Output.String
+        }
+    }
+
+    Context "Upgrading a package when user specifies non-conforming case and is latest available version (no-op)" {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $null = Invoke-Choco install isdependency --confirm
+
+            $Output = Invoke-Choco upgrade IsDePeNDency --noop -r
+        }
+
+        It "Exits with Success (0)" {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It "Outputs line with package name version and old version" {
+            $Output.String | Should -MatchExactly "isdependency\|2\.1\.0\|2\.1\.0\|false"
+        }
+    }
+
+    # Exclude from CCR testing as `nonnormalizedversions` is not seeded to CCR.
+    Context "Upgrading a package with a non-normalized version number" -Tag VersionNormalization, CCRExcluded {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+            $PackageUnderTest = 'nonnormalizedversions'
+            $VersionUnderTest = '004.0.01.0'
+            $ExpectedPackageVersion = '4.0.1'
+            $null = Invoke-Choco install $PackageUnderTest --version 1.0.0
+            $Output = Invoke-Choco upgrade $PackageUnderTest
+        }
+
+        It "Should exit with success (0)" {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It "Should report successful upgrade" {
+            $Output.Lines | Should -Contain "$PackageUnderTest v$ExpectedPackageVersion" -Because $Output.String
+            $Output.Lines | Should -Contain 'Chocolatey upgraded 1/1 packages.' -Because $Output.String
+        }
+
+        It "Should have upgraded the correct files" {
+            $ExpectedFiles = "${env:ChocolateyInstall}/lib/$PackageUnderTest/$PackageUnderTest"
+            "$ExpectedFiles.Nupkg" | Should -Exist -Because $Output.String
+            $NuspecContents = [xml](Get-Content "$ExpectedFiles.nuspec")
+            $NuspecContents.package.metadata.version | Should -Be $VersionUnderTest
+        }
+    }
+
+    Context 'Upgrading a package where parent only contain pre-releases' {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $null = Invoke-Choco install isdependency --version 1.0.0
+            $null = Invoke-Choco install hasstabledependency
+
+            $Output = Invoke-Choco upgrade isdependency --version 2.0.0
+        }
+
+        It "Should exit with sucess (0)" {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It "Should report successful upgrade" {
+            ($Output.Lines -match "^isdependency v2\.0\.0.*").Count | Should -Be 1 -Because $Output.String
+            $Output.Lines | Should -Contain "Chocolatey upgraded 1/1 packages." -Because $Output.String
+        }
+
+        It "Should have upgraded the correct files" {
+            $ExpectedFile = "${env:ChocolateyInstall}/lib/isdependency/isdependency"
+            "$ExpectedFile.nupkg" | Should -Exist
+            $NuspecContent = [xml](Get-Content "$ExpectedFile.nuspec")
+            $NuspecContent.package.metadata.version | Should -Be "2.0.0"
+        }
+    }
+
+    # This test is taken from UpgradeScenarios.cs from the integration test suite:
+    # When_upgrading_a_dependency_with_parent_being_pinned_and_depends_on_a_range_less_than_upgrade_version
+    # Further details about this test can be found there.
+    Context 'Upgrading a dependency with pinned parent and depends on a range less than upgrade version' {
+        BeforeAll {
+            $DependentPackageName = 'isdependency'
+            Restore-ChocolateyInstallSnapshot
+            $Setup = @(
+                Invoke-Choco install $DependentPackageName --version 1.0.0 --confirm
+                Invoke-Choco install hasdependency --pin --version 1.0.0 --confirm
+            )
+            $Output = Invoke-Choco upgrade $DependentPackageName --confirm
+            $Packages = (Invoke-Choco list -r).Lines | ConvertFrom-ChocolateyOutput -Command List
+        }
+
+        AfterAll {
+            Remove-ChocolateyInstallSnapshot
+        }
+
+        It "Exits with Success (0)" {
+            $Output.ExitCode | Should -Be 0 -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should report upgraded successfully" {
+            $Output.Lines | Should -Contain "Chocolatey upgraded 1/1 packages." -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should report package conflicts" {
+            $message = "[NuGet] One or more unresolved package dependency constraints detected in the Chocolatey lib folder. All dependency constraints must be resolved to add or update packages. If these packages are being updated this message may be ignored, if not the following error(s) may be blocking the current package operation: 'hasdependency 1.0.0 constraint: isdependency (>= 1.0.0 && < 2.0.0)'"
+            $Output.Lines | Should -Contain $message -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should upgrade the dependent package to the highest version in the range" {
+            ($Packages | Where-Object Name -eq $DependentPackageName).Version | Should -Be '1.1.0' -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should not upgrade the exact version dependency package" {
+            ($Packages | Where-Object Name -eq 'isexactversiondependency').Version | Should -Be '1.0.0' -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+    }
+
+    Context 'Upgrading a package (<PackageName>) with <Argument> should downgrade (<AllowsDowngrade>) an existing package dependency.' -Tag Downgrade -ForEach @(
+        @{
+            Argument = '--force'
+            AllowsDowngrade = $true
+            ExpectedExit = 0
+            PackageName = 'upgradedowngradesdependency'
+            BasePackage = 'upgradedowngradesdependency'
+        }
+        @{
+            Argument = '--allow-downgrade'
+            AllowsDowngrade = $true
+            ExpectedExit = 0
+            PackageName = 'upgradedowngradesdependency'
+            BasePackage = 'upgradedowngradesdependency'
+        }
+        @{
+            Argument = ''
+            AllowsDowngrade = $false
+            ExpectedExit = 1
+            PackageName = 'upgradedowngradesdependency'
+            BasePackage = 'upgradedowngradesdependency'
+        }
+        @{
+            Argument = '--force'
+            AllowsDowngrade = $true
+            ExpectedExit = 0
+            PackageName = 'all'
+            BasePackage = 'upgradedowngradesdependency'
+        }
+        @{
+            Argument = '--allow-downgrade'
+            AllowsDowngrade = $true
+            ExpectedExit = 0
+            PackageName = 'all'
+            BasePackage = 'upgradedowngradesdependency'
+        }
+        @{
+            Argument = ''
+            AllowsDowngrade = $false
+            ExpectedExit = 1
+            PackageName = 'all'
+            BasePackage = 'upgradedowngradesdependency'
+        }
+        @{
+            Argument = '--force'
+            AllowsDowngrade = $true
+            ExpectedExit = 0
+            PackageName = 'all'
+            BasePackage = 'downgradesdependency'
+        }
+        @{
+            Argument = '--allow-downgrade'
+            AllowsDowngrade = $true
+            ExpectedExit = 0
+            PackageName = 'all'
+            BasePackage = 'downgradesdependency'
+        }
+        @{
+            Argument = ''
+            AllowsDowngrade = $false
+            ExpectedExit = 1
+            PackageName = 'all'
+            BasePackage = 'downgradesdependency'
+        }
+    ) {
+        BeforeAll {
+            $DependentPackage = @{
+                Name = 'isdependency'
+                Version = '2.1.0'
+            }
+
+            Restore-ChocolateyInstallSnapshot
+
+            $Setup = Invoke-Choco install $DependentPackage.Name --version $DependentPackage.Version --confirm
+            $Setup2 = Invoke-Choco install $BasePackage --version 1.0.0 --confirm
+            # We need to exclude packages that are in Test Kitchen but not the other environments.
+            $Output = Invoke-Choco upgrade $PackageName --confirm --except="$ExceptPackages" $Argument
+        }
+
+        It "Exits with expected result (<ExpectedExit>)" {
+            $Output.ExitCode | Should -Be $ExpectedExit -Because $Output.String
+        }
+
+        It "Reports correctly about downgrading isdependency" {
+            if ($AllowsDowngrade) {
+                $Output.Lines | Should -Not -Contain 'A newer version of isdependency (v2.1.0) is already installed.' -Because $Output.String
+                $Output.Lines | Should -Not -Contain 'Use --allow-downgrade or --force to attempt to install older versions.' -Because $Output.String
+                $Output.String | Should -MatchExactly 'Chocolatey upgraded 2/\d+ packages.'
+            }
+            else {
+                $Output.Lines | Should -Contain 'A newer version of isdependency (v2.1.0) is already installed.' -Because $Output.String
+                $Output.Lines | Should -Contain 'Use --allow-downgrade or --force to attempt to install older versions.' -Because $Output.String
+                $Output.String | Should -MatchExactly 'Chocolatey upgraded 0/\d+ packages. 2 packages failed.'
+            }
+        }
+    }
+
+    # Exclude from CCR testing as `test-environment` is not seeded to CCR, and this test is testing CLI internals
+    Context 'Upgrading a package using a single quote in the parameters and remembering arguments' -Tag Arguments, CCRExcluded {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            Enable-ChocolateyFeature -Name "useRememberedArgumentsForUpgrades"
+
+            $null = Invoke-Choco install test-environment --package-parameters="/Comment:It's Great! /SubmittedBy:Kim" --version 0.9
+            $Output = Invoke-Choco upgrade test-environment
+        }
+
+        It "Exits successfully (0)" {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It "Should warn about possible upgrade failure" {
+            $Output.Lines | Should -Contain "Upgrade failures may be related to this issue." -Because $Output.String
+        }
+
+        It "Should give diagnostic information" {
+            $Output.Lines | Should -Contain "To troubleshoot, run: ``choco info test-environment --local-only`` and review the package" -Because $Output.String
+        }
+    }
+
+    # Exclude from CCR testing as `test-environment` is not seeded to CCR, and this test is testing CLI internals
+    Context 'Upgrading a package using double-dash arguments in package arguments' -Tag Arguments, CCRExcluded {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            Enable-ChocolateyFeature -Name "useRememberedArgumentsForUpgrades"
+
+            $null = Invoke-Choco install test-environment --package-parameters="'--quiet --norestart --wait --includeRecommended --includeOptional'" --verbose --version 0.9
+
+            $Output = Invoke-Choco upgrade test-environment --verbose
+        }
+
+        It "Exits successfully (0)" {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It "Should have set the expected package parameter to environment variable" {
+            $Output.Lines | Should -Contain "chocolateyPackageParameters=--quiet --norestart --wait --includeRecommended --includeOptional" -Because $Output.String
+        }
+
+        It "Should report 1 out of 1 packages upgraded" {
+            $Output.Lines | Should -Contain "Chocolatey upgraded 1/1 packages." -Because $Output.String
+        }
+    }
+
+    # Chocolatey must never substitute a different version of the package named on the
+    # command line when --version was used. The parent package here takes an exact
+    # dependency on hasdependency 1.0.0, so the requested 2.0.0 cannot be resolved.
+    Context 'Upgrading a package to a version an installed parent package forbids' -Tag Working {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $Setup = Invoke-Choco install hasoutofrangedependency --version 1.0.0 --confirm
+            $Output = Invoke-Choco upgrade hasdependency --version 2.0.0 --confirm
+            $Packages = (Invoke-Choco list -r).Lines | ConvertFrom-ChocolateyOutput -Command List
+        }
+
+        AfterAll {
+            Remove-ChocolateyInstallSnapshot
+        }
+
+        It "Exits with Failure (1)" {
+            $Output.ExitCode | Should -Be 1 -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should report the requested version could not be used" {
+            $message = "Upgrading package hasdependency to version 2.0.0 is not possible, likely due to package dependency version requirements. The latest package version that meets the dependency requirements is 1.0.0. For more information on this issue and guidance in resolving the problem, see https://ch0.co/t/deps"
+            $Output.Lines | Should -Contain $message -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should report no packages were upgraded" {
+            $Output.Lines | Should -Contain "Chocolatey upgraded 0/1 packages. 1 packages failed." -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should leave the package at the version that was already installed" {
+            ($Packages | Where-Object Name -eq 'hasdependency').Version | Should -Be '1.0.0' -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+    }
+
+    # The reported form of the problem: an explicit downgrade that the dependency graph
+    # cannot satisfy used to report success while leaving the newer version in place.
+    Context 'Downgrading a package to a version an installed parent package forbids' -Tag Working, Downgrade {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            # hasnesteddependency brings in hasdependency 2.1.0, which requires isdependency 2.0.0 or newer.
+            $Setup = Invoke-Choco install hasnesteddependency --version 1.0.0 --confirm
+            $Output = Invoke-Choco upgrade isdependency --version 1.0.0 --allow-downgrade --confirm
+            $Packages = (Invoke-Choco list -r).Lines | ConvertFrom-ChocolateyOutput -Command List
+        }
+
+        AfterAll {
+            Remove-ChocolateyInstallSnapshot
+        }
+
+        It "Exits with Failure (1)" {
+            $Output.ExitCode | Should -Be 1 -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should report the requested version could not be used" {
+            $message = "Upgrading package isdependency to version 1.0.0 is not possible, likely due to package dependency version requirements. The latest package version that meets the dependency requirements is 2.1.0. For more information on this issue and guidance in resolving the problem, see https://ch0.co/t/deps"
+            $Output.Lines | Should -Contain $message -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should not have downgraded the package" {
+            ($Packages | Where-Object Name -eq 'isdependency').Version | Should -Be '2.1.0' -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+    }
+
+    Context 'Upgrading a package a parent package constrains without specifying a version' -Tag Working {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $Setup = Invoke-Choco install hasoutofrangedependency --version 1.0.0 --confirm
+            $Output = Invoke-Choco upgrade hasdependency --confirm
+            $Packages = (Invoke-Choco list -r).Lines | ConvertFrom-ChocolateyOutput -Command List
+        }
+
+        AfterAll {
+            Remove-ChocolateyInstallSnapshot
+        }
+
+        It "Exits with Success (0)" {
+            $Output.ExitCode | Should -Be 0 -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should not report a version mismatch" {
+            $Output.String | Should -Not -Match "is not possible, likely due to package dependency version requirements" -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should report the package upgraded" {
+            $Output.Lines | Should -Contain "Chocolatey upgraded 1/1 packages." -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should keep the package at the highest version the dependency graph allows" {
+            ($Packages | Where-Object Name -eq 'hasdependency').Version | Should -Be '1.0.0' -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+    }
+
+    Context 'Upgrading a package to a version a parent package forbids while ignoring dependencies' -Tag Working {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            $Setup = Invoke-Choco install hasoutofrangedependency --version 1.0.0 --confirm
+            $Output = Invoke-Choco upgrade hasdependency --version 2.0.0 --ignore-dependencies --confirm
+            $Packages = (Invoke-Choco list -r).Lines | ConvertFrom-ChocolateyOutput -Command List
+        }
+
+        AfterAll {
+            Remove-ChocolateyInstallSnapshot
+        }
+
+        It "Exits with Success (0)" {
+            $Output.ExitCode | Should -Be 0 -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should upgrade to the requested version" {
+            ($Packages | Where-Object Name -eq 'hasdependency').Version | Should -Be '2.0.0' -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+    }
+
+    Context 'Upgrading a package to a version a parent package forbids with StopOnFirstPackageFailure enabled' -Tag Working, StopOnFirstPackageFailure {
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+
+            Enable-ChocolateyFeature -Name StopOnFirstPackageFailure
+            $Setup = Invoke-Choco install hasoutofrangedependency --version 1.0.0 --confirm
+            $Output = Invoke-Choco upgrade hasdependency --version 2.0.0 --confirm
+            $Packages = (Invoke-Choco list -r).Lines | ConvertFrom-ChocolateyOutput -Command List
+        }
+
+        AfterAll {
+            Remove-ChocolateyInstallSnapshot
+        }
+
+        It "Exits with Failure (1)" {
+            $Output.ExitCode | Should -Be 1 -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should report that execution was stopped" {
+            $Output.Lines | Should -Contain "Stopping further execution as hasdependency has failed." -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+
+        It "Should leave the package at the version that was already installed" {
+            ($Packages | Where-Object Name -eq 'hasdependency').Version | Should -Be '1.0.0' -Because (@($Setup.String; $Output.String) -join [System.Environment]::NewLine)
+        }
+    }
+
+    # This needs to be (almost) the last test in this block, to ensure NuGet configurations aren't being created.
+    # Any tests after this block are expected to generate the configuration as they're explicitly using the NuGet CLI
+    Test-NuGetPaths
+
+    # Exclude from CCR testing as this test validates CLI internals only.
+    Context 'Upgrading a package with unsupported nuspec elements shows a warning' -Tag CCRExcluded {
+
+        BeforeDiscovery {
+            $testCases = @(
+                '<license>'
+                '<packageTypes>'
+                '<readme>'
+                '<repository>'
+                '<serviceable>'
+            )
+        }
+
+        BeforeAll {
+            Restore-ChocolateyInstallSnapshot
+            $nuspec = @'
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd">
+  <metadata>
+    <id>unsupportedmetadata</id>
+    <version>1.0.0</version>
+    <title>unsupportedmetadata (Install)</title>
+    <authors>Chocolatey Software</authors>
+    <tags>unsupportedmetadata</tags>
+
+    <license type="expression">MIT</license>
+    <packageTypes>
+        <packageType name="Unsupported" />
+    </packageTypes>
+    <readme>readme.md</readme>
+    <repository type="git" url="https://github.com/chocolatey/choco.git" />
+    <serviceable>true</serviceable>
+
+    <summary>Test of unsupported metadata</summary>
+    <description>Some metadata fields are not supported by chocolatey. `choco pack` should fail to pack them, while `choco install` or `upgrade` should allow them with a warning.</description>
+  </metadata>
+</package>
+'@
+            $tempPath = "$env:TEMP/$(New-Guid)"
+            $packageName = 'unsupportedmetadata'
+            $nuspecPath = "$tempPath/$packageName/$packageName.nuspec"
+
+            $null = New-Item -Path "$tempPath/$packageName" -ItemType Directory
+            $nuspec | Set-Content -Path $nuspecPath
+            "readme content" | Set-Content -Path "$tempPath/$packageName/readme.md"
+
+            $null = Invoke-Choco install nuget.commandline
+            $null = & "$env:ChocolateyInstall/bin/nuget.exe" pack $nuspecPath
+
+            $Output = Invoke-Choco upgrade $packageName --source .
+        }
+
+        AfterAll {
+            Remove-Item $tempPath -Recurse -Force
+        }
+
+        It 'Installs successfully and exits with success (0)' {
+            $Output.ExitCode | Should -Be 0 -Because $Output.String
+        }
+
+        It 'Shows a warning about the unsupported nuspec metadata element "<_>"' -TestCases $testCases {
+            $Output.String | Should -Match "$_ elements are not supported in Chocolatey CLI"
+        }
+    }
+
+    # Do not add tests here unless they use the NuGet CLI. All Chocolatey tests should be above the Test-NuGetPaths call.
+}

@@ -1,4 +1,4 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,14 +14,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using chocolatey.infrastructure.app.configuration;
+using chocolatey.infrastructure.app.attributes;
+
 namespace chocolatey.infrastructure.validations
 {
-    using System.Collections.Generic;
-    using app.configuration;
-
     /// <summary>
     ///   Interface for all validations
     /// </summary>
+    [MultiService]
     public interface IValidation
     {
         /// <summary>
@@ -29,6 +32,11 @@ namespace chocolatey.infrastructure.validations
         /// </summary>
         /// <param name="config">The current Chocolatey Configuration</param>
         /// <returns>The validation results</returns>
+        ICollection<ValidationResult> Validate(ChocolateyConfiguration config);
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
         ICollection<ValidationResult> validate(ChocolateyConfiguration config);
+#pragma warning restore IDE0022, IDE1006
     }
 }

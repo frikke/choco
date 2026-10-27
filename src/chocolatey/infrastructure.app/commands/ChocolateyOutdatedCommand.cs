@@ -1,30 +1,31 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using chocolatey.infrastructure.app.attributes;
+using chocolatey.infrastructure.commandline;
+using chocolatey.infrastructure.app.configuration;
+using chocolatey.infrastructure.commands;
+using chocolatey.infrastructure.logging;
+using chocolatey.infrastructure.app.services;
+
 namespace chocolatey.infrastructure.app.commands
 {
-    using System.Collections.Generic;
-    using attributes;
-    using commandline;
-    using configuration;
-    using infrastructure.commands;
-    using logging;
-    using services;
-
-    [CommandFor("outdated", "retrieves packages that are outdated. Similar to upgrade all --noop")]
+    [CommandFor("outdated", "retrieves information about packages that are outdated. Similar to upgrade all --noop")]
     public class ChocolateyOutdatedCommand : ICommand
     {
         private readonly IChocolateyPackageService _packageService;
@@ -34,36 +35,36 @@ namespace chocolatey.infrastructure.app.commands
             _packageService = packageService;
         }
 
-        public virtual void configure_argument_parser(OptionSet optionSet, ChocolateyConfiguration configuration)
+        public virtual void ConfigureArgumentParser(OptionSet optionSet, ChocolateyConfiguration configuration)
         {
             optionSet
                 .Add("s=|source=",
-                     "Source - The source to find the package(s) to install. Special sources include: ruby, webpi, cygwin, windowsfeatures, and python. To specify more than one source, pass it with a semi-colon separating the values (e.g. \"'source1;source2'\"). Defaults to default feeds.",
-                     option => configuration.Sources = option.remove_surrounding_quotes())
+                     "Source - The source to find the package(s) to install. Special sources include: ruby, cygwin, windowsfeatures, and python. To specify more than one source, pass it with a semi-colon separating the values (e.g. \"'source1;source2'\"). Defaults to default feeds.",
+                     option => configuration.Sources = configuration.ExplicitSources = option.UnquoteSafe())
                 .Add("u=|user=",
                      "User - used with authenticated feeds. Defaults to empty.",
-                     option => configuration.SourceCommand.Username = option.remove_surrounding_quotes())
+                     option => configuration.SourceCommand.Username = option.UnquoteSafe())
                 .Add("p=|password=",
                      "Password - the user's password to the source. Defaults to empty.",
-                     option => configuration.SourceCommand.Password = option.remove_surrounding_quotes())
+                     option => configuration.SourceCommand.Password = option.UnquoteSafe())
                 .Add("cert=",
-                     "Client certificate - PFX pathname for an x509 authenticated feeds. Defaults to empty. Available in 0.9.10+.",
-                     option => configuration.SourceCommand.Certificate = option.remove_surrounding_quotes())
+                     "Client certificate - PFX pathname for an x509 authenticated feeds. Defaults to empty.",
+                     option => configuration.SourceCommand.Certificate = option.UnquoteSafe())
                 .Add("cp=|certpassword=",
-                     "Certificate Password - the client certificate's password to the source. Defaults to empty. Available in 0.9.10+.",
-                     option => configuration.SourceCommand.CertificatePassword = option.remove_surrounding_quotes())
+                     "Certificate Password - the client certificate's password to the source. Defaults to empty.",
+                     option => configuration.SourceCommand.CertificatePassword = option.UnquoteSafe())
                 .Add("pre|prerelease",
-                    "Prerelease - Include Prereleases? Defaults to false. Available in 0.10.14+.",
+                    "Prerelease - Include Prereleases? Defaults to false.",
                     option => configuration.Prerelease = option != null)
                 .Add("ignore-pinned",
-                     "Ignore Pinned - Ignore pinned packages. Defaults to false. Available in 0.10.6+.",
+                     "Ignore Pinned - Ignore pinned packages. Defaults to false.",
                      option => configuration.OutdatedCommand.IgnorePinned = option != null)
                 .Add("ignore-unfound",
-                    "Ignore Unfound Packages - Ignore packages that are not found on the sources used (or the defaults). Overrides the default feature '{0}' set to '{1}'. Available in 0.10.9+.".format_with(ApplicationParameters.Features.IgnoreUnfoundPackagesOnUpgradeOutdated, configuration.Features.IgnoreUnfoundPackagesOnUpgradeOutdated.to_string()),
+                    "Ignore Unfound Packages - Ignore packages that are not found on the sources used (or the defaults). Overrides the default feature '{0}' set to '{1}'.".FormatWith(ApplicationParameters.Features.IgnoreUnfoundPackagesOnUpgradeOutdated, configuration.Features.IgnoreUnfoundPackagesOnUpgradeOutdated.ToStringSafe()),
                     option => configuration.Features.IgnoreUnfoundPackagesOnUpgradeOutdated = option != null)
                 .Add("disable-repository-optimizations|disable-package-repository-optimizations",
-                    "Disable Package Repository Optimizations - Do not use optimizations for reducing bandwidth with repository queries during package install/upgrade/outdated operations. Should not generally be used, unless a repository needs to support older methods of query. When disabled, this makes queries similar to the way they were done in Chocolatey v0.10.11 and before. Overrides the default feature '{0}' set to '{1}'. Available in 0.10.14+.".format_with
-                        (ApplicationParameters.Features.UsePackageRepositoryOptimizations, configuration.Features.UsePackageRepositoryOptimizations.to_string()),
+                    "Disable Package Repository Optimizations - Do not use optimizations for reducing bandwidth with repository queries during package install/upgrade/outdated operations. Should not generally be used, unless a repository needs to support older methods of query. When disabled, this makes queries similar to the way they were done in earlier versions of Chocolatey. Overrides the default feature '{0}' set to '{1}'.".FormatWith
+                        (ApplicationParameters.Features.UsePackageRepositoryOptimizations, configuration.Features.UsePackageRepositoryOptimizations.ToStringSafe()),
                     option =>
                     {
                         if (option != null)
@@ -71,32 +72,33 @@ namespace chocolatey.infrastructure.app.commands
                             configuration.Features.UsePackageRepositoryOptimizations = false;
                         }
                     })
+                .Add("include-configured-sources",
+                    "Include Configured Sources - When using the '--source' option, this appends the sources that have been saved into the chocolatey.config file by 'source' command.  Available in 2.3.0+",
+                    option => configuration.IncludeConfiguredSources = option != null)
                 ;
         }
 
-        public virtual void handle_additional_argument_parsing(IList<string> unparsedArguments, ChocolateyConfiguration configuration)
+        public virtual void ParseAdditionalArguments(IList<string> unparsedArguments, ChocolateyConfiguration configuration)
         {
             configuration.Input = string.Join(" ", unparsedArguments);
-            configuration.PackageNames = string.Join(ApplicationParameters.PackageNamesSeparator.to_string(), unparsedArguments);
+            configuration.PackageNames = string.Join(ApplicationParameters.PackageNamesSeparator.ToStringSafe(), unparsedArguments);
         }
 
-        public virtual void handle_validation(ChocolateyConfiguration configuration)
+        public virtual void Validate(ChocolateyConfiguration configuration)
         {
             if (!string.IsNullOrWhiteSpace(configuration.SourceCommand.Username) && string.IsNullOrWhiteSpace(configuration.SourceCommand.Password))
             {
-                this.Log().Debug(ChocolateyLoggers.LogFileOnly, "Username '{0}' provided. Asking for password.".format_with(configuration.SourceCommand.Username));
-                System.Console.Write("User name '{0}' provided. Password: ".format_with(configuration.SourceCommand.Username));
-                configuration.SourceCommand.Password = InteractivePrompt.get_password(configuration.PromptForConfirmation);
+                this.Log().Debug(ChocolateyLoggers.LogFileOnly, "Username '{0}' provided. Asking for password.".FormatWith(configuration.SourceCommand.Username));
+                System.Console.Write("User name '{0}' provided. Password: ".FormatWith(configuration.SourceCommand.Username));
+                configuration.SourceCommand.Password = InteractivePrompt.GetPassword(configuration.PromptForConfirmation);
             }
         }
 
-        public virtual void help_message(ChocolateyConfiguration configuration)
+        public virtual void HelpMessage(ChocolateyConfiguration configuration)
         {
             this.Log().Info(ChocolateyLoggers.Important, "Outdated Command");
             this.Log().Info(@"
 Returns a list of outdated packages.
-
-NOTE: Available with 0.9.9.6+.
 
 ");
 
@@ -111,15 +113,15 @@ NOTE: Available with 0.9.9.6+.
     choco outdated -s https://somewhere/out/there
     choco outdated -s ""'https://somewhere/protected'"" -u user -p pass
 
-If you use `--source=https://somewhere/out/there`, it is 
- going to look for outdated packages only based on that source, so 
+If you use `--source=https://somewhere/out/there`, it is
+ going to look for outdated packages only based on that source, so
  you may want to add `--ignore-unfound` to your options.
 
-NOTE: See scripting in the command reference (`choco -?`) for how to 
+NOTE: See scripting in the command reference (`choco --help`) for how to
  write proper scripts and integrations.
 
 ");
-           
+
             "chocolatey".Log().Info(ChocolateyLoggers.Important, "Exit Codes");
             "chocolatey".Log().Info(@"
 Exit codes that normally result from running this command.
@@ -131,18 +133,18 @@ Normal:
 Enhanced:
  - 0: no outdated packages
  - -1 or 1: an error has occurred
- - 2: outdated packages have been found
+ - 2: outdated packages have been found (enhanced)
 
-NOTE: Starting in v0.10.12, if you have the feature '{0}' 
- turned on, then choco will provide enhanced exit codes that allow 
+NOTE: If you have the feature '{0}' turned on,
+ then choco will provide enhanced exit codes that allow
  better integration and scripting.
 
-If you find other exit codes that we have not yet documented, please 
- file a ticket so we can document it at 
+If you find other exit codes that we have not yet documented, please
+ file a ticket so we can document it at
  https://github.com/chocolatey/choco/issues/new/choose.
 
-".format_with(ApplicationParameters.Features.UseEnhancedExitCodes));
-           
+".FormatWith(ApplicationParameters.Features.UseEnhancedExitCodes));
+
             "chocolatey".Log().Info(ChocolateyLoggers.Important, "See It In Action");
             "chocolatey".Log().Info(@"
 choco outdated: https://raw.githubusercontent.com/wiki/chocolatey/choco/images/gifs/choco_outdated.gif
@@ -152,19 +154,49 @@ choco outdated: https://raw.githubusercontent.com/wiki/chocolatey/choco/images/g
             "chocolatey".Log().Info(ChocolateyLoggers.Important, "Options and Switches");
         }
 
-        public virtual void noop(ChocolateyConfiguration configuration)
+        public virtual void DryRun(ChocolateyConfiguration configuration)
         {
-            _packageService.outdated_noop(configuration);
+            _packageService.OutdatedDryRun(configuration);
         }
 
-        public virtual void run(ChocolateyConfiguration configuration)
+        public virtual void Run(ChocolateyConfiguration configuration)
         {
-            _packageService.outdated_run(configuration);
+            _packageService.Outdated(configuration);
         }
 
-        public virtual bool may_require_admin_access()
+        public virtual bool MayRequireAdminAccess()
         {
             return false;
         }
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void configure_argument_parser(OptionSet optionSet, ChocolateyConfiguration configuration)
+            => ConfigureArgumentParser(optionSet, configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void handle_additional_argument_parsing(IList<string> unparsedArguments, ChocolateyConfiguration configuration)
+            => ParseAdditionalArguments(unparsedArguments, configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void handle_validation(ChocolateyConfiguration configuration)
+            => Validate(configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void help_message(ChocolateyConfiguration configuration)
+            => HelpMessage(configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void noop(ChocolateyConfiguration configuration)
+            => DryRun(configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void run(ChocolateyConfiguration configuration)
+            => Run(configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual bool may_require_admin_access()
+            => MayRequireAdminAccess();
+#pragma warning restore IDE0022, IDE1006
     }
 }

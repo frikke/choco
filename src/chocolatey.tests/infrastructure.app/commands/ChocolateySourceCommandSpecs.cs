@@ -1,4 +1,4 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,405 +14,406 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using chocolatey.infrastructure.app.attributes;
+using chocolatey.infrastructure.app.commands;
+using chocolatey.infrastructure.app.configuration;
+using chocolatey.infrastructure.app.domain;
+using chocolatey.infrastructure.app.services;
+using chocolatey.infrastructure.commandline;
+using Moq;
+using FluentAssertions;
+
 namespace chocolatey.tests.infrastructure.app.commands
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using chocolatey.infrastructure.app.attributes;
-    using chocolatey.infrastructure.app.commands;
-    using chocolatey.infrastructure.app.configuration;
-    using chocolatey.infrastructure.app.domain;
-    using chocolatey.infrastructure.app.services;
-    using chocolatey.infrastructure.commandline;
-    using Moq;
-    using Should;
-
     public class ChocolateySourceCommandSpecs
     {
+        [ConcernFor("source")]
         public abstract class ChocolateySourceCommandSpecsBase : TinySpec
         {
-            protected ChocolateySourceCommand command;
-            protected Mock<IChocolateyConfigSettingsService> configSettingsService = new Mock<IChocolateyConfigSettingsService>();
-            protected ChocolateyConfiguration configuration = new ChocolateyConfiguration();
+            protected ChocolateySourceCommand Command;
+            protected Mock<IChocolateyConfigSettingsService> ConfigSettingsService = new Mock<IChocolateyConfigSettingsService>();
+            protected ChocolateyConfiguration Configuration = new ChocolateyConfiguration();
 
             public override void Context()
             {
-                configuration.Sources = "https://localhost/somewhere/out/there";
-                command = new ChocolateySourceCommand(configSettingsService.Object);
+                Configuration.Sources = "https://localhost/somewhere/out/there";
+                Command = new ChocolateySourceCommand(ConfigSettingsService.Object);
             }
         }
 
-        public class when_implementing_command_for : ChocolateySourceCommandSpecsBase
+        public class When_implementing_command_for : ChocolateySourceCommandSpecsBase
         {
-            private List<string> results;
+            private List<string> _results;
 
             public override void Because()
             {
-                results = command.GetType().GetCustomAttributes(typeof(CommandForAttribute), false).Cast<CommandForAttribute>().Select(a => a.CommandName).ToList();
+                _results = Command.GetType().GetCustomAttributes(typeof(CommandForAttribute), false).Cast<CommandForAttribute>().Select(a => a.CommandName).ToList();
             }
 
             [Fact]
-            public void should_implement_source()
+            public void Should_implement_source()
             {
-                results.ShouldContain("source");
+                _results.Should().Contain("source");
             }
 
             [Fact]
-            public void should_implement_sources()
+            public void Should_implement_sources()
             {
-                results.ShouldContain("sources");
+                _results.Should().Contain("sources");
             }
         }
 
-        public class when_configurating_the_argument_parser : ChocolateySourceCommandSpecsBase
+        public class When_configurating_the_argument_parser : ChocolateySourceCommandSpecsBase
         {
-            private OptionSet optionSet;
+            private OptionSet _optionSet;
 
             public override void Context()
             {
                 base.Context();
-                optionSet = new OptionSet();
-                configuration.Sources = "https://localhost/somewhere/out/there";
+                _optionSet = new OptionSet();
+                Configuration.Sources = "https://localhost/somewhere/out/there";
             }
 
             public override void Because()
             {
-                command.configure_argument_parser(optionSet, configuration);
+                Command.ConfigureArgumentParser(_optionSet, Configuration);
             }
 
             [Fact]
-            public void should_clear_previously_set_Source()
+            public void Should_clear_previously_set_Source()
             {
-                configuration.Sources.ShouldBeEmpty();
+                Configuration.Sources.Should().BeEmpty();
             }
 
             [Fact]
-            public void should_add_name_to_the_option_set()
+            public void Should_add_name_to_the_option_set()
             {
-                optionSet.Contains("name").ShouldBeTrue();
+                _optionSet.Contains("name").Should().BeTrue();
             }
 
             [Fact]
-            public void should_add_short_version_of_name_to_the_option_set()
+            public void Should_add_short_version_of_name_to_the_option_set()
             {
-                optionSet.Contains("n").ShouldBeTrue();
+                _optionSet.Contains("n").Should().BeTrue();
             }
 
             [Fact]
-            public void should_add_source_to_the_option_set()
+            public void Should_add_source_to_the_option_set()
             {
-                optionSet.Contains("source").ShouldBeTrue();
+                _optionSet.Contains("source").Should().BeTrue();
             }
 
             [Fact]
-            public void should_add_short_version_of_source_to_the_option_set()
+            public void Should_add_short_version_of_source_to_the_option_set()
             {
-                optionSet.Contains("s").ShouldBeTrue();
+                _optionSet.Contains("s").Should().BeTrue();
             }
 
             [Fact]
-            public void should_add_user_to_the_option_set()
+            public void Should_add_user_to_the_option_set()
             {
-                optionSet.Contains("user").ShouldBeTrue();
+                _optionSet.Contains("user").Should().BeTrue();
             }
 
             [Fact]
-            public void should_add_short_version_of_user_to_the_option_set()
+            public void Should_add_short_version_of_user_to_the_option_set()
             {
-                optionSet.Contains("u").ShouldBeTrue();
+                _optionSet.Contains("u").Should().BeTrue();
             }
 
             [Fact]
-            public void should_add_password_to_the_option_set()
+            public void Should_add_password_to_the_option_set()
             {
-                optionSet.Contains("password").ShouldBeTrue();
+                _optionSet.Contains("password").Should().BeTrue();
             }
 
             [Fact]
-            public void should_add_short_version_of_password_to_the_option_set()
+            public void Should_add_short_version_of_password_to_the_option_set()
             {
-                optionSet.Contains("p").ShouldBeTrue();
+                _optionSet.Contains("p").Should().BeTrue();
             }
         }
 
-        public class when_handling_additional_argument_parsing : ChocolateySourceCommandSpecsBase
+        public class When_handling_additional_argument_parsing : ChocolateySourceCommandSpecsBase
         {
-            private readonly IList<string> unparsedArgs = new List<string>();
-            private Action because;
+            private readonly IList<string> _unparsedArgs = new List<string>();
+            private Action _because;
 
             public override void Because()
             {
-                because = () => command.handle_additional_argument_parsing(unparsedArgs, configuration);
+                _because = () => Command.ParseAdditionalArguments(_unparsedArgs, Configuration);
             }
 
-            public void reset()
+            public void Reset()
             {
-                unparsedArgs.Clear();
-                configSettingsService.ResetCalls();
-            }
-
-            [Fact]
-            public void should_use_the_first_unparsed_arg_as_the_subcommand()
-            {
-                reset();
-                unparsedArgs.Add("list");
-                because();
-
-                configuration.SourceCommand.Command.ShouldEqual(SourceCommandType.list);
+                _unparsedArgs.Clear();
+                ConfigSettingsService.ResetCalls();
             }
 
             [Fact]
-            public void should_throw_when_more_than_one_unparsed_arg_is_passed()
+            public void Should_use_the_first_unparsed_arg_as_the_subcommand()
             {
-                reset();
-                unparsedArgs.Add("wtf");
-                unparsedArgs.Add("bbq");
-                var errorred = false;
+                Reset();
+                _unparsedArgs.Add("list");
+                _because();
+
+                Configuration.SourceCommand.Command.Should().Be(SourceCommandType.List);
+            }
+
+            [Fact]
+            public void Should_throw_when_more_than_one_unparsed_arg_is_passed()
+            {
+                Reset();
+                _unparsedArgs.Add("abc");
+                _unparsedArgs.Add("bbq");
+                var errored = false;
                 Exception error = null;
 
                 try
                 {
-                    because();
+                    _because();
                 }
                 catch (Exception ex)
                 {
-                    errorred = true;
+                    errored = true;
                     error = ex;
                 }
 
-                errorred.ShouldBeTrue();
-                error.ShouldNotBeNull();
-                error.ShouldBeType<ApplicationException>();
-                error.Message.ShouldContain("A single sources command must be listed");
+                errored.Should().BeTrue();
+                error.Should().NotBeNull();
+                error.Should().BeOfType<ApplicationException>();
+                error.Message.Should().Contain("A single sources command must be listed");
             }
 
             [Fact]
-            public void should_accept_add_as_the_subcommand()
+            public void Should_accept_add_as_the_subcommand()
             {
-                reset();
-                unparsedArgs.Add("add");
-                because();
+                Reset();
+                _unparsedArgs.Add("add");
+                _because();
 
-                configuration.SourceCommand.Command.ShouldEqual(SourceCommandType.add);
+                Configuration.SourceCommand.Command.Should().Be(SourceCommandType.Add);
             }
 
             [Fact]
-            public void should_accept_uppercase_add_as_the_subcommand()
+            public void Should_accept_uppercase_add_as_the_subcommand()
             {
-                reset();
-                unparsedArgs.Add("ADD");
-                because();
+                Reset();
+                _unparsedArgs.Add("ADD");
+                _because();
 
-                configuration.SourceCommand.Command.ShouldEqual(SourceCommandType.add);
+                Configuration.SourceCommand.Command.Should().Be(SourceCommandType.Add);
             }
 
             [Fact]
-            public void should_remove_add_as_the_subcommand()
+            public void Should_remove_add_as_the_subcommand()
             {
-                reset();
-                unparsedArgs.Add("remove");
-                because();
+                Reset();
+                _unparsedArgs.Add("remove");
+                _because();
 
-                configuration.SourceCommand.Command.ShouldEqual(SourceCommandType.remove);
+                Configuration.SourceCommand.Command.Should().Be(SourceCommandType.Remove);
             }
 
             [Fact]
-            public void should_accept_enable_as_the_subcommand()
+            public void Should_accept_enable_as_the_subcommand()
             {
-                reset();
-                unparsedArgs.Add("enable");
-                because();
+                Reset();
+                _unparsedArgs.Add("enable");
+                _because();
 
-                configuration.SourceCommand.Command.ShouldEqual(SourceCommandType.enable);
+                Configuration.SourceCommand.Command.Should().Be(SourceCommandType.Enable);
             }
 
             [Fact]
-            public void should_accept_disable_as_the_subcommand()
+            public void Should_accept_disable_as_the_subcommand()
             {
-                reset();
-                unparsedArgs.Add("disable");
-                because();
+                Reset();
+                _unparsedArgs.Add("disable");
+                _because();
 
-                configuration.SourceCommand.Command.ShouldEqual(SourceCommandType.disable);
+                Configuration.SourceCommand.Command.Should().Be(SourceCommandType.Disable);
             }
 
             [Fact]
-            public void should_set_unrecognized_values_to_list_as_the_subcommand()
+            public void Should_set_unrecognized_values_to_list_as_the_subcommand()
             {
-                reset();
-                unparsedArgs.Add("wtf");
-                because();
+                Reset();
+                _unparsedArgs.Add("abc");
+                _because();
 
-                configuration.SourceCommand.Command.ShouldEqual(SourceCommandType.list);
+                Configuration.SourceCommand.Command.Should().Be(SourceCommandType.List);
             }
 
             [Fact]
-            public void should_default_to_list_as_the_subcommand()
+            public void Should_default_to_list_as_the_subcommand()
             {
-                reset();
-                because();
+                Reset();
+                _because();
 
-                configuration.SourceCommand.Command.ShouldEqual(SourceCommandType.list);
+                Configuration.SourceCommand.Command.Should().Be(SourceCommandType.List);
             }
 
             [Fact]
-            public void should_handle_passing_in_an_empty_string()
+            public void Should_handle_passing_in_an_empty_string()
             {
-                reset();
-                unparsedArgs.Add(" ");
-                because();
+                Reset();
+                _unparsedArgs.Add(" ");
+                _because();
 
-                configuration.SourceCommand.Command.ShouldEqual(SourceCommandType.list);
+                Configuration.SourceCommand.Command.Should().Be(SourceCommandType.List);
             }
         }
 
-        public class when_handling_validation : ChocolateySourceCommandSpecsBase
+        public class When_validating : ChocolateySourceCommandSpecsBase
         {
-            private Action because;
+            private Action _because;
 
             public override void Because()
             {
-                because = () => command.handle_validation(configuration);
+                _because = () => Command.Validate(Configuration);
             }
 
             [Fact]
-            public void should_throw_when_command_is_not_list_and_name_is_not_set()
+            public void Should_throw_when_command_is_not_list_and_name_is_not_set()
             {
-                configuration.SourceCommand.Name = "";
+                Configuration.SourceCommand.Name = "";
                 const string expectedMessage = "When specifying the subcommand '{0}', you must also specify --name.";
-                verify_exception_thrown_on_command(expectedMessage);
+                VerifyExceptionThrownOnCommand(expectedMessage);
             }
 
             [Fact]
-            public void should_throw_when_command_is_add_and_source_is_not_set()
+            public void Should_throw_when_command_is_add_and_source_is_not_set()
             {
-                configuration.SourceCommand.Name = "irrelevant";
-                configuration.Sources = string.Empty;
+                Configuration.SourceCommand.Name = "irrelevant";
+                Configuration.Sources = string.Empty;
                 const string expectedMessage = "When specifying the subcommand '{0}', you must also specify --source.";
-                verify_exception_thrown_on_command(expectedMessage);
+                VerifyExceptionThrownOnCommand(expectedMessage);
             }
 
-            private void verify_exception_thrown_on_command(string expectedMessage)
+            private void VerifyExceptionThrownOnCommand(string expectedMessage)
             {
-                configuration.SourceCommand.Command = SourceCommandType.add;
+                Configuration.SourceCommand.Command = SourceCommandType.Add;
 
-                var errorred = false;
+                var errored = false;
                 Exception error = null;
 
                 try
                 {
-                    because();
+                    _because();
                 }
                 catch (Exception ex)
                 {
-                    errorred = true;
+                    errored = true;
                     error = ex;
                 }
 
-                errorred.ShouldBeTrue();
-                error.ShouldNotBeNull();
-                error.ShouldBeType<ApplicationException>();
-                var commandName = configuration.SourceCommand.Command.to_string();
-                error.Message.ShouldEqual(expectedMessage.format_with(commandName));
+                errored.Should().BeTrue();
+                error.Should().NotBeNull();
+                error.Should().BeOfType<ApplicationException>();
+                var commandName = Configuration.SourceCommand.Command.ToStringSafe().ToLower();
+                error.Message.Should().Be(expectedMessage.FormatWith(commandName));
             }
 
             [Fact]
-            public void should_continue_when_command_is_list_and_name_is_not_set()
+            public void Should_continue_when_command_is_list_and_name_is_not_set()
             {
-                configuration.SourceCommand.Command = SourceCommandType.list;
-                configuration.SourceCommand.Name = "";
-                because();
+                Configuration.SourceCommand.Command = SourceCommandType.List;
+                Configuration.SourceCommand.Name = "";
+                _because();
             }
 
             [Fact]
-            public void should_continue_when_command_is_not_list_and_name_is_set()
+            public void Should_continue_when_command_is_not_list_and_name_is_set()
             {
-                configuration.SourceCommand.Command = SourceCommandType.list;
-                configuration.SourceCommand.Name = "bob";
-                because();
+                Configuration.SourceCommand.Command = SourceCommandType.List;
+                Configuration.SourceCommand.Name = "bob";
+                _because();
             }
         }
 
-        public class when_noop_is_called : ChocolateySourceCommandSpecsBase
+        public class When_noop_is_called : ChocolateySourceCommandSpecsBase
         {
             public override void Because()
             {
-                command.noop(configuration);
+                Command.DryRun(Configuration);
             }
 
             [Fact]
-            public void should_call_service_noop()
+            public void Should_call_service_noop()
             {
-                configSettingsService.Verify(c => c.noop(configuration), Times.Once);
+                ConfigSettingsService.Verify(c => c.DryRun(Configuration), Times.Once);
             }
         }
 
-        public class when_run_is_called : ChocolateySourceCommandSpecsBase
+        public class When_run_is_called : ChocolateySourceCommandSpecsBase
         {
-            private Action because;
+            private Action _because;
 
             public override void Because()
             {
-                because = () => command.run(configuration);
+                _because = () => Command.Run(Configuration);
             }
 
             [Fact]
-            public void should_call_service_source_list_when_command_is_list()
+            public void Should_call_service_source_list_when_command_is_list()
             {
-                configuration.SourceCommand.Command = SourceCommandType.list;
-                because();
-                configSettingsService.Verify(c => c.source_list(configuration), Times.Once);
+                Configuration.SourceCommand.Command = SourceCommandType.List;
+                _because();
+                ConfigSettingsService.Verify(c => c.ListSources(Configuration), Times.Once);
             }
 
             [Fact]
-            public void should_call_service_source_add_when_command_is_add()
+            public void Should_call_service_source_add_when_command_is_add()
             {
-                configuration.SourceCommand.Command = SourceCommandType.add;
-                because();
-                configSettingsService.Verify(c => c.source_add(configuration), Times.Once);
+                Configuration.SourceCommand.Command = SourceCommandType.Add;
+                _because();
+                ConfigSettingsService.Verify(c => c.AddSource(Configuration), Times.Once);
             }
 
             [Fact]
-            public void should_call_service_source_remove_when_command_is_remove()
+            public void Should_call_service_source_remove_when_command_is_remove()
             {
-                configuration.SourceCommand.Command = SourceCommandType.remove;
-                because();
-                configSettingsService.Verify(c => c.source_remove(configuration), Times.Once);
+                Configuration.SourceCommand.Command = SourceCommandType.Remove;
+                _because();
+                ConfigSettingsService.Verify(c => c.RemoveSource(Configuration), Times.Once);
             }
 
             [Fact]
-            public void should_call_service_source_disable_when_command_is_disable()
+            public void Should_call_service_source_disable_when_command_is_disable()
             {
-                configuration.SourceCommand.Command = SourceCommandType.disable;
-                because();
-                configSettingsService.Verify(c => c.source_disable(configuration), Times.Once);
+                Configuration.SourceCommand.Command = SourceCommandType.Disable;
+                _because();
+                ConfigSettingsService.Verify(c => c.DisableSource(Configuration), Times.Once);
             }
 
             [Fact]
-            public void should_call_service_source_enable_when_command_is_enable()
+            public void Should_call_service_source_enable_when_command_is_enable()
             {
-                configuration.SourceCommand.Command = SourceCommandType.enable;
-                because();
-                configSettingsService.Verify(c => c.source_enable(configuration), Times.Once);
+                Configuration.SourceCommand.Command = SourceCommandType.Enable;
+                _because();
+                ConfigSettingsService.Verify(c => c.EnableSource(Configuration), Times.Once);
             }
         }
 
-        public class when_list_is_called : ChocolateySourceCommandSpecsBase
+        public class When_list_is_called : ChocolateySourceCommandSpecsBase
         {
-            private Action because;
+            private Action _because;
 
             public override void Because()
             {
-                because = () => command.list(configuration);
+                _because = () => Command.List(Configuration);
             }
 
             [Fact]
-            public void should_call_service_source_list_when_command_is_list()
+            public void Should_call_service_source_list_when_command_is_list()
             {
-                configuration.SourceCommand.Command = SourceCommandType.list;
-                because();
-                configSettingsService.Verify(c => c.source_list(configuration), Times.Once);
+                Configuration.SourceCommand.Command = SourceCommandType.List;
+                _because();
+                ConfigSettingsService.Verify(c => c.ListSources(Configuration), Times.Once);
             }
         }
     }

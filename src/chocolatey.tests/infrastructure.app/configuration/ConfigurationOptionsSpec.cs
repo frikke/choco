@@ -1,328 +1,366 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using chocolatey.infrastructure.adapters;
+using chocolatey.infrastructure.app.configuration;
+using chocolatey.infrastructure.commandline;
+using Moq;
+using FluentAssertions;
+using NUnit.Framework;
+
 namespace chocolatey.tests.infrastructure.app.configuration
 {
-    using System;
-    using System.Collections.Generic;
-    using System.IO;
-    using System.Linq;
-    using System.Text;
-    using chocolatey.infrastructure.adapters;
-    using chocolatey.infrastructure.app.configuration;
-    using chocolatey.infrastructure.commandline;
-    using Moq;
-    using Should;
-
     public class ConfigurationOptionsSpec
     {
         public abstract class ConfigurationOptionsSpecBase : TinySpec
         {
-            protected ICollection<string> args;
-            protected ChocolateyConfiguration config;
-            protected Action<OptionSet> setOptions;
-            protected Action<IList<string>> afterParse;
-            protected Action validateConfiguration;
-            protected Action helpMessage;
+            protected ICollection<string> Args;
+            protected ChocolateyConfiguration Config;
+            protected Action<OptionSet> SetOptions;
+            protected Action<IList<string>> AfterParse;
+            protected Action ValidateConfiguration;
+            protected Action HelpMessage;
 
-            protected Mock<IConsole> console = new Mock<IConsole>();
-            protected static StringBuilder helpMessageContents = new StringBuilder();
-            protected TextWriter errorWriter = new StringWriter(helpMessageContents);
-            protected TextWriter outputWriter = new StringWriter(helpMessageContents);
+            protected Mock<IConsole> Console = new Mock<IConsole>();
+            protected static StringBuilder HelpMessageContents = new StringBuilder();
+            protected TextWriter ErrorWriter = new StringWriter(HelpMessageContents);
+            protected TextWriter OutputWriter = new StringWriter(HelpMessageContents);
 
             public override void Context()
             {
-                ConfigurationOptions.initialize_with(new Lazy<IConsole>(() => console.Object));
-                ConfigurationOptions.reset_options();
-                console.Setup((c) => c.Error).Returns(errorWriter);
-                console.Setup((c) => c.Out).Returns(outputWriter);
+                ConfigurationOptions.InitializeWith(new Lazy<IConsole>(() => Console.Object));
+                ConfigurationOptions.ClearOptions();
+                Console.Setup((c) => c.Error).Returns(ErrorWriter);
+                Console.Setup((c) => c.Out).Returns(OutputWriter);
             }
 
-            protected Action because;
+            protected Action BecauseAction;
 
             public override void Because()
             {
-                because = () => ConfigurationOptions.parse_arguments_and_update_configuration(args, config, setOptions, afterParse, validateConfiguration, helpMessage);
+                BecauseAction = () => ConfigurationOptions.ParseArgumentsAndUpdateConfiguration(Args, Config, SetOptions, AfterParse, ValidateConfiguration, HelpMessage);
             }
 
             public override void BeforeEachSpec()
             {
-                args = new List<string>();
-                config = new ChocolateyConfiguration();
-                setOptions = set => { };
-                afterParse = list => { };
-                validateConfiguration = () => { };
-                helpMessage = () => { };
-                helpMessageContents.Clear();
+                Args = new List<string>();
+                Config = new ChocolateyConfiguration();
+                SetOptions = set => { };
+                AfterParse = list => { };
+                ValidateConfiguration = () => { };
+                HelpMessage = () => { };
+                HelpMessageContents.Clear();
+                ConfigurationOptions.ClearOptions();
             }
         }
 
-        public class when_ConfigurationOptions_parses_arguments_and_updates_configuration_method : ConfigurationOptionsSpecBase
+        public class When_ConfigurationOptions_parses_arguments_and_updates_configuration_method : ConfigurationOptionsSpecBase
         {
             [Fact]
-            public void should_set_help_options_by_default()
+            public void Should_set_help_options_by_default()
             {
-                setOptions = set =>
+                SetOptions = set =>
                 {
-                    set.Contains("h").ShouldBeTrue();
-                    set.Contains("help").ShouldBeTrue();
-                    set.Contains("?").ShouldBeTrue();
+                    set.Contains("h").Should().BeTrue();
+                    set.Contains("help").Should().BeTrue();
+                    set.Contains("?").Should().BeTrue();
                 };
-                because();
+                BecauseAction();
             }
 
             [Fact]
-            public void should_not_have_set_other_options_by_default()
+            public void Should_not_have_set_other_options_by_default()
             {
-                setOptions = set => { set.Contains("dude").ShouldBeFalse(); };
-                because();
-            }
-
-            [Fact, Explicit]
-            public void should_show_help_menu_when_help_is_requested()
-            {
-                args.Add("-h");
-
-                because();
-
-                config.HelpRequested.ShouldBeTrue();
-            }
-
-            [Fact, Explicit]
-            public void should_have_a_helpMessage_with_contents_when_help_is_requested()
-            {
-                args.Add("-h");
-
-                because();
-
-                helpMessageContents.ToString().ShouldNotBeEmpty();
-            }
-
-            [Fact, Explicit]
-            public void should_not_run_validate_configuration_when_help_is_requested()
-            {
-                args.Add("-h");
-                validateConfiguration = () => { "should".ShouldEqual("not be reached"); };
-
-                because();
+                SetOptions = set => { set.Contains("dude").Should().BeFalse(); };
+                BecauseAction();
             }
 
             [Fact]
-            public void should_run_validate_configuration_unless_help_is_requested()
+            public void Should_show_help_menu_when_help_is_requested()
+            {
+                Args.Add("-h");
+
+                BecauseAction();
+
+                Config.HelpRequested.Should().BeTrue();
+                Config.ShowOnlineHelp.Should().BeFalse();
+            }
+
+            [Fact]
+            public void Should_show_online_help_menu_when_help_is_requested()
+            {
+                Args.Add("-h");
+                Args.Add("--online");
+
+                BecauseAction();
+
+                Config.HelpRequested.Should().BeTrue();
+                Config.ShowOnlineHelp.Should().BeTrue();
+            }
+
+            [Fact]
+            public void Should_have_a_helpMessage_with_contents_when_help_is_requested()
+            {
+                Args.Add("-h");
+
+                BecauseAction();
+
+                HelpMessageContents.ToString().Should().NotBeEmpty();
+            }
+
+            [Fact]
+            public void Should_not_run_validate_configuration_when_help_is_requested()
+            {
+                Args.Add("-h");
+                ValidateConfiguration = () => { "should".Should().Be("not be reached"); };
+
+                BecauseAction();
+            }
+
+            [Fact]
+            public void Should_run_validate_configuration_unless_help_is_requested()
             {
                 var wasCalled = false;
-                validateConfiguration = () => { wasCalled = true; };
+                ValidateConfiguration = () => { wasCalled = true; };
 
-                because();
+                BecauseAction();
 
-                wasCalled.ShouldBeTrue();
+                wasCalled.Should().BeTrue();
             }
 
             [Fact]
-            public void should_give_an_empty_unparsed_args_to_after_parse()
+            public void Should_give_an_empty_unparsed_args_to_after_parse()
             {
                 var wasCalled = false;
-                afterParse = list =>
+                AfterParse = list =>
                 {
                     wasCalled = true;
-                    list.ShouldBeEmpty();
+                    list.Should().BeEmpty();
                 };
 
-                because();
+                BecauseAction();
 
-                wasCalled.ShouldBeTrue();
+                wasCalled.Should().BeTrue();
             }
 
             [Fact]
-            public void should_give_an_empty_unparsed_args_to_after_parse_when_all_specified_args_are_parsed()
+            public void Should_give_an_empty_unparsed_args_to_after_parse_when_all_specified_args_are_parsed()
             {
-                args.Add("-h");
+                Args.Add("-h");
                 var wasCalled = false;
-                afterParse = list =>
+                AfterParse = list =>
                 {
                     wasCalled = true;
-                    list.ShouldBeEmpty();
+                    list.Should().BeEmpty();
                 };
 
-                because();
+                BecauseAction();
 
-                wasCalled.ShouldBeTrue();
+                wasCalled.Should().BeTrue();
             }
 
             [Fact]
-            public void should_give_unparsed_args_to_after_parse_when_not_picked_up_by_an_option()
+            public void Should_give_unparsed_args_to_after_parse_when_not_picked_up_by_an_option()
             {
-                args.Add("--what-is=this");
+                Args.Add("--what-is=this");
                 var wasCalled = false;
-                afterParse = list =>
+                AfterParse = list =>
                 {
                     wasCalled = true;
-                    list.ShouldContain(args.First());
+                    list.Should().Contain(Args.First());
                 };
 
-                because();
+                BecauseAction();
 
-                wasCalled.ShouldBeTrue();
+                wasCalled.Should().BeTrue();
             }
 
             [Fact]
-            public void should_find_command_name_in_unparsed_args_if_not_set_otherwise()
+            public void Should_find_command_name_in_unparsed_args_if_not_set_otherwise()
             {
-                args.Add("dude");
+                Args.Add("dude");
                 var wasCalled = false;
-                afterParse = list =>
+                AfterParse = list =>
                 {
                     wasCalled = true;
-                    list.ShouldContain(args.First());
+                    list.Should().Contain(Args.First());
                 };
 
-                because();
+                BecauseAction();
 
-                config.CommandName.ShouldEqual("dude");
-                wasCalled.ShouldBeTrue();
+                Config.CommandName.Should().Be("dude");
+                wasCalled.Should().BeTrue();
             }
 
             [Fact]
-            public void should_set_help_requested_if_command_name_is_starts_with_a_prefix()
+            public void Should_set_help_requested_if_command_name_is_starts_with_a_prefix()
             {
-                args.Add("/dude");
+                Args.Add("/dude");
                 var wasCalled = false;
-                afterParse = list =>
+                AfterParse = list =>
                 {
                     wasCalled = true;
-                    list.ShouldContain(args.First());
+                    list.Should().Contain(Args.First());
                 };
 
-                because();
+                BecauseAction();
 
-                config.CommandName.ShouldNotEqual("dude");
-                config.HelpRequested.ShouldBeTrue();
-                wasCalled.ShouldBeTrue();
+                Config.CommandName.Should().NotBe("dude");
+                Config.HelpRequested.Should().BeTrue();
+                wasCalled.Should().BeTrue();
             }
 
             [Fact]
-            public void should_add_an_option_for_bob_when_specified()
+            public void Should_add_an_option_for_bob_when_specified()
             {
-                setOptions = set => { set.Add("bob", "sets the bob switch", option => config.Verbose = option != null); };
-                because();
+                SetOptions = set => { set.Add("bob", "sets the bob switch", option => Config.Verbose = option != null); };
+                BecauseAction();
 
-                config.Verbose.ShouldBeFalse();
+                Config.Verbose.Should().BeFalse();
             }
 
             [Fact]
-            public void should_set_option_for_tim_to_true_when_specified_with_dash()
+            public void Should_set_option_for_tim_to_true_when_specified_with_dash()
             {
-                setOptions = set => { set.Add("tim", "sets the tim switch", option => config.Verbose = option != null); };
-                args.Add("-tim");
+                SetOptions = set => { set.Add("tim", "sets the tim switch", option => Config.Verbose = option != null); };
+                Args.Add("-tim");
 
-                because();
+                BecauseAction();
 
-                config.Verbose.ShouldBeTrue();
+                Config.Verbose.Should().BeTrue();
             }
 
             [Fact]
-            public void should_set_option_for_tina_to_true_when_specified_with_two_dashes()
+            public void Should_set_option_for_tina_to_true_when_specified_with_two_dashes()
             {
-                setOptions = set => { set.Add("tina", "sets the tina switch", option => config.Verbose = option != null); };
-                args.Add("--tina");
-                because();
+                SetOptions = set => { set.Add("tina", "sets the tina switch", option => Config.Verbose = option != null); };
+                Args.Add("--tina");
+                BecauseAction();
 
-                config.Verbose.ShouldBeTrue();
+                Config.Verbose.Should().BeTrue();
             }
 
             [Fact]
-            public void should_set_option_for_gena_to_true_when_specified_with_forward_slash()
+            public void Should_set_option_for_gena_to_true_when_specified_with_forward_slash()
             {
-                setOptions = set => { set.Add("gena", "sets the gena switch", option => config.Verbose = option != null); };
-                args.Add("/gena");
+                SetOptions = set => { set.Add("gena", "sets the gena switch", option => Config.Verbose = option != null); };
+                Args.Add("/gena");
 
-                because();
+                BecauseAction();
 
-                config.Verbose.ShouldBeTrue();
+                Config.Verbose.Should().BeTrue();
             }
 
             [Fact]
-            public void should_set_option_when_specified_as_single_dash_for_timmy_and_other_option_short_values_are_passed_the_same_way()
+            public void Should_set_option_when_specified_as_single_dash_for_timmy_and_other_option_short_values_are_passed_the_same_way()
             {
-                setOptions = set =>
+                SetOptions = set =>
                 {
-                    set.Add("timmy", "sets the timmy switch", option => config.Verbose = option != null);
-                    set.Add("s|skip", "sets the skip switch", option => config.SkipPackageInstallProvider = option != null);
-                    set.Add("d|debug", "sets the debug switch", option => config.Debug = option != null);
+                    set.Add("timmy", "sets the timmy switch", option => Config.Verbose = option != null);
+                    set.Add("s|skip", "sets the skip switch", option => Config.SkipPackageInstallProvider = option != null);
+                    set.Add("d|debug", "sets the debug switch", option => Config.Debug = option != null);
                 };
-                args.Add("-timmy");
-                args.Add("-sd");
+                Args.Add("-timmy");
+                Args.Add("-sd");
 
-                because();
+                BecauseAction();
 
-                config.SkipPackageInstallProvider.ShouldBeTrue();
-                config.Debug.ShouldBeTrue();
-                config.Verbose.ShouldBeTrue();
+                Config.SkipPackageInstallProvider.Should().BeTrue();
+                Config.Debug.Should().BeTrue();
+                Config.Verbose.Should().BeTrue();
             }
 
             [Fact]
-            public void should_set_option_when_specified_as_single_dash_for_lo_and_other_option_short_values_are_passed_the_same_way()
+            public void Should_set_option_when_specified_as_single_dash_for_lo_and_other_option_short_values_are_passed_the_same_way()
             {
-                setOptions = set =>
+                SetOptions = set =>
                 {
-                    set.Add("lo|local-only", "sets the lo switch", option => config.ListCommand.LocalOnly = option != null);
-                    set.Add("l|lskip", "sets the skip switch", option => config.SkipPackageInstallProvider = option != null);
-                    set.Add("m|mdebug", "sets the debug switch", option => config.Debug = option != null);
+                    set.Add("lo|local-only", "sets the lo switch", option => Config.ListCommand.LocalOnly = option != null);
+                    set.Add("l|lskip", "sets the skip switch", option => Config.SkipPackageInstallProvider = option != null);
+                    set.Add("m|mdebug", "sets the debug switch", option => Config.Debug = option != null);
                 };
-                args.Add("-lo");
-                args.Add("-ml");
+                Args.Add("-lo");
+                Args.Add("-ml");
 
-                because();
+                BecauseAction();
 
-                config.SkipPackageInstallProvider.ShouldBeTrue();
-                config.Debug.ShouldBeTrue();
-                config.ListCommand.LocalOnly.ShouldBeTrue();
-                helpMessageContents.ToString().ShouldBeEmpty();
+                Config.SkipPackageInstallProvider.Should().BeTrue();
+                Config.Debug.Should().BeTrue();
+                Config.ListCommand.LocalOnly.Should().BeTrue();
+                HelpMessageContents.ToString().Should().BeEmpty();
             }
 
             [Fact]
-            public void should_show_help_menu_when_passing_bundled_options_that_do_not_exist()
+            public void Should_show_help_menu_when_passing_bundled_options_that_do_not_exist()
             {
-                setOptions = set => { set.Add("w|wdebug", "sets the debug switch", option => config.Debug = option != null); };
-                args.Add("-wz");
+                SetOptions = set => { set.Add("w|wdebug", "sets the debug switch", option => Config.Debug = option != null); };
+                Args.Add("-wz");
 
-                because();
+                BecauseAction();
 
-                config.Debug.ShouldBeFalse();
-                helpMessageContents.ToString().ShouldNotBeEmpty();
+                Config.Debug.Should().BeFalse();
+                HelpMessageContents.ToString().Should().NotBeEmpty();
             }
 
             [Fact]
-            public void should_successfully_parse_help_option()
+            public void Should_successfully_parse_help_option()
             {
-                args.Add("-h");
+                Args.Add("-h");
 
-                because();
+                BecauseAction();
 
-                config.UnsuccessfulParsing.ShouldBeFalse();
+                Config.UnsuccessfulParsing.Should().BeFalse();
             }
 
             [Fact]
-            public void should_not_parse_unknown_option()
+            public void Should_not_parse_unknown_option()
             {
-                args.Add("-unknown");
+                Args.Add("-unknown");
 
-                because();
+                BecauseAction();
 
-                config.UnsuccessfulParsing.ShouldBeTrue();
+                Config.UnsuccessfulParsing.Should().BeTrue();
+            }
+
+            // This test uses the [Combinatorial] attribute to run multiple times,
+            // trying out every possible combination of the input values we've defined.
+            // It helps us make sure the code works across many different scenarios.
+            // Even though this is how NUnit works by default, we include the attribute
+            // to make it clear what's happening and to prevent surprises in the future.
+            [Fact, Combinatorial]
+            public void Should_Throw_Exception_When_Short_Name_Verbose_Is_Used_With_Value(
+                [Values(null, "install ")] string command,
+                [Values('/', '-')] char @switch,
+                [Values('=', ':', ' ')] char seperator,
+                [Values(null, '\'', '"')] char? quote)
+            {
+                Args.Add(command + @switch + "v" + seperator + quote + "5.2.1" + quote);
+
+                BecauseAction.Should().Throw<ApplicationException>()
+                    .WithMessage(@"
+A value was passed to the `-v` option, but this option does not support an
+ explicit value.
+
+Did you mean to use `--version='5.2.1'` instead?
+");
             }
         }
     }

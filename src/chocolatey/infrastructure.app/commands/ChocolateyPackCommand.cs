@@ -1,32 +1,32 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using chocolatey.infrastructure.app.attributes;
+using chocolatey.infrastructure.commandline;
+using chocolatey.infrastructure.app.configuration;
+using chocolatey.infrastructure.commands;
+using chocolatey.infrastructure.logging;
+using chocolatey.infrastructure.app.services;
+
 namespace chocolatey.infrastructure.app.commands
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using attributes;
-    using commandline;
-    using configuration;
-    using infrastructure.commands;
-    using logging;
-    using services;
-
-    [CommandFor("pack", "packages up a nuspec to a compiled nupkg")]
+    [CommandFor("pack", "packages nuspec, scripts, and other Chocolatey package resources into a nupkg file")]
     public class ChocolateyPackCommand : ICommand
     {
         private readonly IChocolateyPackageService _packageService;
@@ -36,34 +36,34 @@ namespace chocolatey.infrastructure.app.commands
             _packageService = packageService;
         }
 
-        public virtual void configure_argument_parser(OptionSet optionSet, ChocolateyConfiguration configuration)
+        public virtual void ConfigureArgumentParser(OptionSet optionSet, ChocolateyConfiguration configuration)
         {
             optionSet
                 .Add("version=",
                      "Version - The version you would like to insert into the package.",
-                     option => configuration.Version = option.remove_surrounding_quotes())
+                     option => configuration.Version = option.UnquoteSafe())
                 .Add("out=|outdir=|outputdirectory=|output-directory=",
                      "OutputDirectory - Specifies the directory for the created Chocolatey package file. If not specified, uses the current directory.",
-                     option => configuration.OutputDirectory = option.remove_surrounding_quotes())
+                     option => configuration.OutputDirectory = option.UnquoteSafe())
                 ;
         }
 
-        public virtual void handle_additional_argument_parsing(IList<string> unparsedArguments, ChocolateyConfiguration configuration)
+        public virtual void ParseAdditionalArguments(IList<string> unparsedArguments, ChocolateyConfiguration configuration)
         {
             // First non-switch argument that is not a name=value pair will be treated as the nuspec file to pack.
-            configuration.Input = unparsedArguments.DefaultIfEmpty(string.Empty).FirstOrDefault(arg => !arg.StartsWith("-") && !arg.contains("="));
+            configuration.Input = unparsedArguments.DefaultIfEmpty(string.Empty).FirstOrDefault(arg => !arg.StartsWith("-") && !arg.ContainsSafe("="));
 
-            foreach (var unparsedArgument in unparsedArguments.or_empty_list_if_null())
+            foreach (var unparsedArgument in unparsedArguments.OrEmpty())
             {
                 var property = unparsedArgument.Split(new[] { '=' }, 2, StringSplitOptions.RemoveEmptyEntries);
                 if (property.Length == 2)
                 {
-                    var propName = property[0].trim_safe();
-                    var propValue = property[1].trim_safe().remove_surrounding_quotes();
+                    var propName = property[0].TrimSafe();
+                    var propValue = property[1].TrimSafe().UnquoteSafe();
 
                     if (configuration.PackCommand.Properties.ContainsKey(propName))
                     {
-                        this.Log().Warn(() => "A value for '{0}' has already been added with the value '{1}'. Ignoring {0}='{2}'.".format_with(propName, configuration.PackCommand.Properties[propName], propValue));
+                        this.Log().Warn(() => "A value for '{0}' has already been added with the value '{1}'. Ignoring {0}='{2}'.".FormatWith(propName, configuration.PackCommand.Properties[propName], propValue));
                     }
                     else
                     {
@@ -73,34 +73,23 @@ namespace chocolatey.infrastructure.app.commands
             }
         }
 
-        public virtual void handle_validation(ChocolateyConfiguration configuration)
+        public virtual void Validate(ChocolateyConfiguration configuration)
         {
         }
 
-        public virtual void help_message(ChocolateyConfiguration configuration)
+        public virtual void HelpMessage(ChocolateyConfiguration configuration)
         {
             this.Log().Info(ChocolateyLoggers.Important, "Pack Command");
             this.Log().Info(@"
-Chocolatey will attempt to package a nuspec into a compiled nupkg. Some
- may prefer to use `cpack` as a shortcut for `choco pack`.
-
-NOTE: 100% compatible with older chocolatey client (0.9.8.32 and below)
- with options and switches. In most cases you can still pass options 
- and switches with one dash (`-`). For more details, see 
- the command reference (`choco -?`).
+Chocolatey will attempt to package a nuspec into a compiled nupkg.
 
 NOTE: You can pass arbitrary property value pairs through to nuspecs.
  These will replace variables formatted as `$property$` with the value passed.
-
-NOTE: `cpack` has been deprecated as it has a name collision with CMake. Please 
- use `choco pack` instead. The shortcut will be removed in v1.
-
 ");
 
             "chocolatey".Log().Info(ChocolateyLoggers.Important, "Usage");
             "chocolatey".Log().Info(@"
     choco pack [<path to nuspec>] [<options/switches>] [<property=value>]
-    cpack [<path to nuspec>] [<options/switches>] (DEPRECATED)
 ");
 
             "chocolatey".Log().Info(ChocolateyLoggers.Important, "Examples");
@@ -110,7 +99,7 @@ NOTE: `cpack` has been deprecated as it has a name collision with CMake. Please
     choco pack path/to/nuspec
     choco pack --outputdirectory build
 
-NOTE: See scripting in the command reference (`choco -?`) for how to 
+NOTE: See scripting in the command reference (`choco --help`) for how to
  write proper scripts and integrations.
 
 ");
@@ -123,8 +112,8 @@ Normal:
  - 0: operation was successful, no issues detected
  - -1 or 1: an error has occurred
 
-If you find other exit codes that we have not yet documented, please 
- file a ticket so we can document it at 
+If you find other exit codes that we have not yet documented, please
+ file a ticket so we can document it at
  https://github.com/chocolatey/choco/issues/new/choose.
 
 ");
@@ -132,19 +121,49 @@ If you find other exit codes that we have not yet documented, please
             "chocolatey".Log().Info(ChocolateyLoggers.Important, "Options and Switches");
         }
 
-        public virtual void noop(ChocolateyConfiguration configuration)
+        public virtual void DryRun(ChocolateyConfiguration configuration)
         {
-            _packageService.pack_noop(configuration);
+            _packageService.PackDryRun(configuration);
         }
 
-        public virtual void run(ChocolateyConfiguration configuration)
+        public virtual void Run(ChocolateyConfiguration configuration)
         {
-            _packageService.pack_run(configuration);
+            _packageService.Pack(configuration);
         }
 
-        public virtual bool may_require_admin_access()
+        public virtual bool MayRequireAdminAccess()
         {
             return false;
         }
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void configure_argument_parser(OptionSet optionSet, ChocolateyConfiguration configuration)
+            => ConfigureArgumentParser(optionSet, configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void handle_additional_argument_parsing(IList<string> unparsedArguments, ChocolateyConfiguration configuration)
+            => ParseAdditionalArguments(unparsedArguments, configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void handle_validation(ChocolateyConfiguration configuration)
+            => Validate(configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void help_message(ChocolateyConfiguration configuration)
+            => HelpMessage(configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void noop(ChocolateyConfiguration configuration)
+            => DryRun(configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void run(ChocolateyConfiguration configuration)
+            => Run(configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual bool may_require_admin_access()
+            => MayRequireAdminAccess();
+#pragma warning restore IDE0022, IDE1006
     }
 }

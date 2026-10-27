@@ -1,54 +1,61 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using IFileSystem = chocolatey.infrastructure.filesystem.IFileSystem;
+using chocolatey.infrastructure.platforms;
+using NuGet.Common;
+using NuGet.Configuration;
+using NuGet.Packaging;
+
 namespace chocolatey.infrastructure.app.nuget
 {
-    using System;
-    using System.Collections.Generic;
-    using System.IO;
-    using System.Linq;
-    using NuGet;
-    using IFileSystem = filesystem.IFileSystem;
-
-    // ReSharper disable InconsistentNaming
-
     public sealed class NugetPack
     {
-        public static IPackage BuildPackage(PackageBuilder builder, IFileSystem fileSystem, string outputPath = null)
+        public static bool BuildPackage(PackageBuilder builder, IFileSystem fileSystem, string outputPath)
         {
             ExcludeFiles(builder.Files);
+
             // Track if the package file was already present on disk
-            bool isExistingPackage = fileSystem.file_exists(outputPath);
+            var isExistingPackage = fileSystem.FileExists(outputPath);
             try
             {
-                using (Stream stream = fileSystem.create_file(outputPath))
+                using (Stream stream = fileSystem.CreateFile(outputPath))
                 {
+                    // Truncate if needed, as Mono fails to truncate
+                    if (stream.Length > 0)
+                    {
+                        stream.SetLength(0);
+                    }
                     builder.Save(stream);
                 }
             }
             catch
             {
-                if (!isExistingPackage && fileSystem.file_exists(outputPath))
+                if (!isExistingPackage && fileSystem.FileExists(outputPath))
                 {
-                    fileSystem.delete_file(outputPath);
+                    fileSystem.DeleteFile(outputPath);
                 }
                 throw;
             }
 
-            return new OptimizedZipPackage(outputPath);
+            return true;
         }
 
         private static void ExcludeFiles(ICollection<IPackageFile> packageFiles)
@@ -56,8 +63,9 @@ namespace chocolatey.infrastructure.app.nuget
             // Always exclude the nuspec file
             // Review: This exclusion should be done by the package builder because it knows which file would collide with the auto-generated
             // manifest file.
+            var filter = Platform.GetPlatform() == PlatformType.Windows ? @"**\*" : "**/*";
             var excludes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var wildCards = excludes.Concat(new[] {@"**\*" + Constants.ManifestExtension, @"**\*" + Constants.PackageExtension});
+            var wildCards = excludes.Concat(new[] { filter + PackagingConstants.ManifestExtension, filter + NuGetConstants.PackageExtension });
 
             PathResolver.FilterPackageFiles(packageFiles, ResolvePath, wildCards);
         }
@@ -73,6 +81,4 @@ namespace chocolatey.infrastructure.app.nuget
             return physicalPackageFile.SourcePath;
         }
     }
-
-    // ReSharper restore InconsistentNaming
 }

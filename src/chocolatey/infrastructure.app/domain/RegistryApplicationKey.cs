@@ -1,26 +1,26 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// 
+//
 // You may obtain a copy of the License at
-// 
+//
 // 	http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Xml.Serialization;
+using Microsoft.Win32;
+using chocolatey.infrastructure.xml;
+
 namespace chocolatey.infrastructure.app.domain
 {
-    using System;
-    using System.Xml.Serialization;
-    using Microsoft.Win32;
-    using xml;
-
     [Serializable]
     [XmlType("key")]
     public class RegistryApplicationKey : IEquatable<RegistryApplicationKey>
@@ -74,10 +74,10 @@ namespace chocolatey.infrastructure.app.domain
         /// <remarks>
         ///   http://community.spiceworks.com/how_to/show/2238-how-add-remove-programs-works
         /// </remarks>
-        public bool is_in_programs_and_features()
+        public bool IsInProgramsAndFeatures()
         {
             return !string.IsNullOrWhiteSpace(DisplayName)
-                   && !string.IsNullOrWhiteSpace(UninstallString.to_string())
+                   && !string.IsNullOrWhiteSpace(UninstallString.ToStringSafe())
                    && InstallerType != InstallerType.HotfixOrSecurityUpdate
                    && InstallerType != InstallerType.ServicePack
                    && string.IsNullOrWhiteSpace(ParentKeyName)
@@ -88,7 +88,7 @@ namespace chocolatey.infrastructure.app.domain
 
         public override string ToString()
         {
-            return "{0}|{1}|{2}|{3}|{4}".format_with(
+            return "{0}|{1}|{2}|{3}|{4}".FormatWith(
                 DisplayName,
                 DisplayVersion,
                 InstallerType,
@@ -101,26 +101,38 @@ namespace chocolatey.infrastructure.app.domain
         {
             return DisplayName.GetHashCode()
                    & DisplayVersion.GetHashCode()
-                   & UninstallString.to_string().GetHashCode()
+                   & UninstallString.ToStringSafe().GetHashCode()
                    & KeyPath.GetHashCode();
         }
 
         public override bool Equals(object obj)
         {
-            if (ReferenceEquals(this, obj)) return true;
+            if (ReferenceEquals(this, obj))
+            {
+                return true;
+            }
 
             return Equals(obj as RegistryApplicationKey);
         }
 
         bool IEquatable<RegistryApplicationKey>.Equals(RegistryApplicationKey other)
         {
-            if (ReferenceEquals(other, null)) return false;
+            if (other is null)
+            {
+                return false;
+            }
 
-            return DisplayName.to_string().is_equal_to(other.DisplayName)
-                   && DisplayVersion.is_equal_to(other.DisplayVersion)
-                   && UninstallString.to_string().is_equal_to(other.UninstallString.to_string())
-                   && KeyPath.is_equal_to(other.KeyPath)
+            return DisplayName.ToStringSafe().IsEqualTo(other.DisplayName)
+                   && DisplayVersion.IsEqualTo(other.DisplayVersion)
+                   && UninstallString.ToStringSafe().IsEqualTo(other.UninstallString.ToStringSafe())
+                   && KeyPath.IsEqualTo(other.KeyPath)
                 ;
         }
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public bool is_in_programs_and_features()
+            => IsInProgramsAndFeatures();
+#pragma warning restore IDE0022, IDE1006
     }
 }

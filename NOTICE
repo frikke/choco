@@ -1,4 +1,4 @@
-   Copyright (c) 2017 - 2018 Chocolatey Software, Inc.
+   Copyright (c) 2017 - 2021 Chocolatey Software, Inc.
    Copyright (c) 2011 - 2017 RealDimensions Software, LLC
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,3 +12,7 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+   Additional legal information and licenses used by Chocolatey CLI can be
+   found in the CREDITS file or at
+   https://github.com/chocolatey/choco/blob/develop/docs/legal/CREDITS.md

@@ -1,4 +1,4 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,12 +14,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using System.Xml.Serialization;
+
 namespace chocolatey.infrastructure.app.configuration
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Xml.Serialization;
-
     /// <summary>
     ///   XML configuration file
     /// </summary>
@@ -27,14 +27,6 @@ namespace chocolatey.infrastructure.app.configuration
     [XmlRoot("chocolatey")]
     public class ConfigFileSettings
     {
-        [Obsolete("This will be removed in v1 of Chocolatey")]
-        [XmlElement(ElementName = "cacheLocation")]
-        public string CacheLocation { get; set; }
-
-        [Obsolete("This will be removed in v1 of Chocolatey")]
-        [XmlElement(ElementName = "commandExecutionTimeoutSeconds")]
-        public int CommandExecutionTimeoutSeconds { get; set; }
-
         [XmlArray("config")]
         public HashSet<ConfigFileConfigSetting> ConfigSettings { get; set; }
 
@@ -55,11 +47,9 @@ namespace chocolatey.infrastructure.app.configuration
                 return false;
             }
 
-            var item = (ConfigFileSettings) obj;
+            var item = (ConfigFileSettings)obj;
 
-            return (CacheLocation == item.CacheLocation)
-                && (CommandExecutionTimeoutSeconds == item.CommandExecutionTimeoutSeconds)
-                && (ConfigSettings == item.ConfigSettings)
+            return (ConfigSettings == item.ConfigSettings)
                 && (Sources == item.Sources)
                 && (Features == item.Features)
                 && (ApiKeys == item.ApiKeys);
@@ -67,13 +57,42 @@ namespace chocolatey.infrastructure.app.configuration
 
         public override int GetHashCode()
         {
-            return HashCode
-                .Of(CacheLocation)
-                .And(CommandExecutionTimeoutSeconds)
-                .AndEach(ConfigSettings)
-                .AndEach(Sources)
-                .AndEach(Features)
-                .AndEach(ApiKeys);
+            var hash = new HashCode();
+
+            if (ConfigSettings != null)
+            {
+                foreach (var item in ConfigSettings)
+                {
+                    hash.Add(item);
+                }
+            }
+
+            if (Sources != null)
+            {
+                foreach (var item in Sources)
+                {
+                    hash.Add(item);
+                }
+            }
+
+            if (Features != null)
+            {
+                foreach (var item in Features)
+                {
+                    hash.Add(item);
+                }
+            }
+
+            if (ApiKeys != null)
+            {
+                foreach (var item in ApiKeys)
+                {
+                    hash.Add(item);
+                }
+            }
+
+            return hash.ToHashCode();
+
         }
     }
 }

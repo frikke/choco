@@ -1,4 +1,4 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+﻿// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,14 +14,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using chocolatey.infrastructure.app.configuration;
+using chocolatey.infrastructure.validations;
+using chocolatey.infrastructure.app.services;
+
 namespace chocolatey.infrastructure.app.validations
 {
-    using System;
-    using System.Collections.Generic;
-    using configuration;
-    using infrastructure.validations;
-    using services;
-
     /// <summary>
     ///   Performs validation against the current System State.  This
     ///   includes things like pending reboot requirement.  Any errors
@@ -36,12 +36,12 @@ namespace chocolatey.infrastructure.app.validations
             _pendingRebootService = pendingRebootService;
         }
 
-        public ICollection<ValidationResult> validate(ChocolateyConfiguration config)
+        public ICollection<ValidationResult> Validate(ChocolateyConfiguration config)
         {
             this.Log().Debug("System State Validation Checks:");
             var validationResults = new List<ValidationResult>();
 
-            check_system_pending_reboot(config, validationResults);
+            ValidateSystemPendingReboot(config, validationResults);
 
             if (validationResults.Count == 0)
             {
@@ -56,22 +56,22 @@ namespace chocolatey.infrastructure.app.validations
             return validationResults;
         }
 
-        private void check_system_pending_reboot(ChocolateyConfiguration config, ICollection<ValidationResult> validationResults)
+        private void ValidateSystemPendingReboot(ChocolateyConfiguration config, ICollection<ValidationResult> validationResults)
         {
-            var result = _pendingRebootService.is_pending_reboot(config);
+            var result = _pendingRebootService.IsRebootPending(config);
 
             if (result)
             {
-                var commandsToErrorOn = new List<string> {"install", "uninstall", "upgrade"};
+                var commandsToErrorOn = new List<string> { "install", "uninstall", "upgrade" };
 
                 if (!commandsToErrorOn.Contains(config.CommandName.ToLowerInvariant()))
                 {
                     validationResults.Add(new ValidationResult
                     {
                         Message = @"A pending system reboot request has been detected, however, this is
-   being ignored due to the current command being used '{0}'.
+   being ignored due to the current command '{0}' being used.
    It is recommended that you reboot at your earliest convenience.
-".format_with(config.CommandName),
+".FormatWith(config.CommandName),
                         Status = ValidationStatus.Warning,
                         ExitCode = 0
                     });
@@ -84,9 +84,9 @@ namespace chocolatey.infrastructure.app.validations
    being ignored due to the current Chocolatey configuration.  If you
    want to halt when this occurs, then either set the global feature
    using:
-     choco feature enable -name={0}
+     choco feature enable --name=""{0}""
    or pass the option --exit-when-reboot-detected.
-".format_with(ApplicationParameters.Features.ExitOnRebootDetected),
+".FormatWith(ApplicationParameters.Features.ExitOnRebootDetected),
                         Status = ValidationStatus.Warning,
                         ExitCode = 0
                     });
@@ -97,12 +97,18 @@ namespace chocolatey.infrastructure.app.validations
 
                     validationResults.Add(new ValidationResult
                     {
-                        Message = "A pending system reboot has been detected (exit code {0}).".format_with(ApplicationParameters.ExitCodes.ErrorFailNoActionReboot),
+                        Message = "A pending system reboot has been detected (exit code {0}).".FormatWith(ApplicationParameters.ExitCodes.ErrorFailNoActionReboot),
                         Status = ValidationStatus.Error,
                         ExitCode = ApplicationParameters.ExitCodes.ErrorFailNoActionReboot
                     });
                 }
             }
         }
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public ICollection<ValidationResult> validate(ChocolateyConfiguration config)
+            => Validate(config);
+#pragma warning restore IDE0022, IDE1006
     }
 }

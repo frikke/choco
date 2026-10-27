@@ -1,4 +1,4 @@
-﻿// Copyright © 2017 - 2018 Chocolatey Software, Inc
+// Copyright © 2017 - 2025 Chocolatey Software, Inc
 // Copyright © 2011 - 2017 RealDimensions Software, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,38 +14,49 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using chocolatey.infrastructure.app.attributes;
+using chocolatey.infrastructure.commandline;
+using chocolatey.infrastructure.app.configuration;
+using chocolatey.infrastructure.commands;
+using chocolatey.infrastructure.logging;
+using chocolatey.infrastructure.app.services;
+
 namespace chocolatey.infrastructure.app.commands
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using attributes;
-    using commandline;
-    using configuration;
-    using infrastructure.commands;
-    using infrastructure.configuration;
-    using logging;
-    using services;
-
-    [CommandFor("install", "installs packages from various sources")]
-    public class ChocolateyInstallCommand : ICommand
+    [CommandFor("install", "installs packages using configured sources")]
+    public class ChocolateyInstallCommand : ChocolateyCommandBase, ICommand
     {
         private readonly IChocolateyPackageService _packageService;
+
+        private readonly string[] _removedOptions = new[]
+        {
+            "-m",
+            "-sxs",
+            "--sidebyside",
+            "--side-by-side",
+            "--allowmultiple",
+            "--allow-multiple",
+            "--allowmultipleversions",
+            "--allow-multiple-versions",
+        };
 
         public ChocolateyInstallCommand(IChocolateyPackageService packageService)
         {
             _packageService = packageService;
         }
 
-        public virtual void configure_argument_parser(OptionSet optionSet, ChocolateyConfiguration configuration)
+        public virtual void ConfigureArgumentParser(OptionSet optionSet, ChocolateyConfiguration configuration)
         {
             optionSet
                 .Add("s=|source=",
-                     "Source - The source to find the package(s) to install. Special sources include: ruby, webpi, cygwin, windowsfeatures, and python. To specify more than one source, pass it with a semi-colon separating the values (e.g. \"'source1;source2'\"). Defaults to default feeds.",
-                     option => configuration.Sources = option.remove_surrounding_quotes())
+                     "Source - The source to find the package(s) to install. Special sources include: ruby, cygwin, windowsfeatures, and python. To specify more than one source, pass it with a semi-colon separating the values (e.g. \"'source1;source2'\"). Defaults to default feeds.",
+                     option => configuration.Sources = configuration.ExplicitSources = option.UnquoteSafe())
                 .Add("version=",
                      "Version - A specific version to install. Defaults to unspecified.",
-                     option => configuration.Version = option.remove_surrounding_quotes())
+                     option => configuration.Version = option.UnquoteSafe())
                 .Add("pre|prerelease",
                      "Prerelease - Include Prereleases? Defaults to false.",
                      option => configuration.Prerelease = option != null)
@@ -54,7 +65,7 @@ namespace chocolatey.infrastructure.app.commands
                      option => configuration.ForceX86 = option != null)
                 .Add("ia=|installargs=|install-args=|installarguments=|install-arguments=",
                      "InstallArguments - Install Arguments to pass to the native installer in the package. Defaults to unspecified.",
-                     option => configuration.InstallArguments = option.remove_surrounding_quotes())
+                     option => configuration.InstallArguments = option.UnquoteSafe())
                 .Add("o|override|overrideargs|overridearguments|override-arguments",
                      "OverrideArguments - Should install arguments be used exclusively without appending to current package passed arguments? Defaults to false.",
                      option => configuration.OverrideArguments = option != null)
@@ -63,7 +74,7 @@ namespace chocolatey.infrastructure.app.commands
                      option => configuration.NotSilent = option != null)
                 .Add("params=|parameters=|pkgparameters=|packageparameters=|package-parameters=",
                      "PackageParameters - Parameters to pass to the package. Defaults to unspecified.",
-                     option => configuration.PackageParameters = option.remove_surrounding_quotes())
+                     option => configuration.PackageParameters = option.UnquoteSafe())
                 .Add("argsglobal|args-global|installargsglobal|install-args-global|applyargstodependencies|apply-args-to-dependencies|apply-install-arguments-to-dependencies",
                      "Apply Install Arguments To Dependencies  - Should install arguments be applied to dependent packages? Defaults to false.",
                      option => configuration.ApplyInstallArgumentsToDependencies = option != null)
@@ -73,9 +84,6 @@ namespace chocolatey.infrastructure.app.commands
                 .Add("allowdowngrade|allow-downgrade",
                      "AllowDowngrade - Should an attempt at downgrading be allowed? Defaults to false.",
                      option => configuration.AllowDowngrade = option != null)
-                .Add("m|sxs|sidebyside|side-by-side|allowmultiple|allow-multiple|allowmultipleversions|allow-multiple-versions",
-                     "AllowMultipleVersions - Should multiple versions of a package be installed? Defaults to false.",
-                     option => configuration.AllowMultipleVersions = option != null)
                 .Add("i|ignoredependencies|ignore-dependencies",
                      "IgnoreDependencies - Ignore dependencies when installing package(s). Defaults to false.",
                      option => configuration.IgnoreDependencies = option != null)
@@ -83,40 +91,49 @@ namespace chocolatey.infrastructure.app.commands
                      "ForceDependencies - Force dependencies to be reinstalled when force installing package(s). Must be used in conjunction with --force. Defaults to false.",
                      option => configuration.ForceDependencies = option != null)
                 .Add("n|skippowershell|skip-powershell|skipscripts|skip-scripts|skip-automation-scripts",
-                     "Skip Powershell - Do not run chocolateyInstall.ps1. Defaults to false.",
+                     "Skip PowerShell - Do not run chocolateyInstall.ps1. Defaults to false.",
                      option => configuration.SkipPackageInstallProvider = option != null)
                 .Add("u=|user=",
                      "User - used with authenticated feeds. Defaults to empty.",
-                     option => configuration.SourceCommand.Username = option.remove_surrounding_quotes())
+                     option => configuration.SourceCommand.Username = option.UnquoteSafe())
                 .Add("p=|password=",
                      "Password - the user's password to the source. Defaults to empty.",
-                     option => configuration.SourceCommand.Password = option.remove_surrounding_quotes())
+                     option => configuration.SourceCommand.Password = option.UnquoteSafe())
                 .Add("cert=",
-                     "Client certificate - PFX pathname for an x509 authenticated feeds. Defaults to empty. Available in 0.9.10+.",
-                     option => configuration.SourceCommand.Certificate = option.remove_surrounding_quotes())
+                     "Client certificate - PFX pathname for an x509 authenticated feeds. Defaults to empty.",
+                     option => configuration.SourceCommand.Certificate = option.UnquoteSafe())
                 .Add("cp=|certpassword=",
-                     "Certificate Password - the client certificate's password to the source. Defaults to empty. Available in 0.9.10+.",
-                     option => configuration.SourceCommand.CertificatePassword = option.remove_surrounding_quotes())
+                     "Certificate Password - the client certificate's password to the source. Defaults to empty.",
+                     option => configuration.SourceCommand.CertificatePassword = option.UnquoteSafe())
                 .Add("ignorechecksum|ignore-checksum|ignorechecksums|ignore-checksums",
-                      "IgnoreChecksums - Ignore checksums provided by the package. Overrides the default feature '{0}' set to '{1}'. Available in 0.9.9.9+.".format_with(ApplicationParameters.Features.ChecksumFiles, configuration.Features.ChecksumFiles.to_string()),
+                      "IgnoreChecksums - Ignore checksums provided by the package. Overrides the default feature '{0}' set to '{1}'.".FormatWith(ApplicationParameters.Features.ChecksumFiles, configuration.Features.ChecksumFiles.ToStringSafe()),
                       option =>
                       {
-                          if (option != null) configuration.Features.ChecksumFiles = false;
+                          if (option != null)
+                          {
+                              configuration.Features.ChecksumFiles = false;
+                          }
                       })
                 .Add("allowemptychecksum|allowemptychecksums|allow-empty-checksums",
-                      "Allow Empty Checksums - Allow packages to have empty/missing checksums for downloaded resources from non-secure locations (HTTP, FTP). Use this switch is not recommended if using sources that download resources from the internet. Overrides the default feature '{0}' set to '{1}'. Available in 0.10.0+.".format_with(ApplicationParameters.Features.AllowEmptyChecksums, configuration.Features.AllowEmptyChecksums.to_string()),
+                      "Allow Empty Checksums - Allow packages to have empty/missing checksums for downloaded resources from non-secure locations (HTTP, FTP). Use this switch is not recommended if using sources that download resources from the internet. Overrides the default feature '{0}' set to '{1}'.".FormatWith(ApplicationParameters.Features.AllowEmptyChecksums, configuration.Features.AllowEmptyChecksums.ToStringSafe()),
                       option =>
                       {
-                          if (option != null) configuration.Features.AllowEmptyChecksums = true;
+                          if (option != null)
+                          {
+                              configuration.Features.AllowEmptyChecksums = true;
+                          }
                       })
-                 .Add("allowemptychecksumsecure|allowemptychecksumssecure|allow-empty-checksums-secure",
-                      "Allow Empty Checksums Secure - Allow packages to have empty checksums for downloaded resources from secure locations (HTTPS). Overrides the default feature '{0}' set to '{1}'. Available in 0.10.0+.".format_with(ApplicationParameters.Features.AllowEmptyChecksumsSecure, configuration.Features.AllowEmptyChecksumsSecure.to_string()),
+                .Add("allowemptychecksumsecure|allowemptychecksumssecure|allow-empty-checksums-secure",
+                      "Allow Empty Checksums Secure - Allow packages to have empty checksums for downloaded resources from secure locations (HTTPS). Overrides the default feature '{0}' set to '{1}'.".FormatWith(ApplicationParameters.Features.AllowEmptyChecksumsSecure, configuration.Features.AllowEmptyChecksumsSecure.ToStringSafe()),
                       option =>
                       {
-                          if (option != null) configuration.Features.AllowEmptyChecksumsSecure = true;
+                          if (option != null)
+                          {
+                              configuration.Features.AllowEmptyChecksumsSecure = true;
+                          }
                       })
                 .Add("requirechecksum|requirechecksums|require-checksums",
-                      "Require Checksums - Requires packages to have checksums for downloaded resources (both non-secure and secure). Overrides the default feature '{0}' set to '{1}' and '{2}' set to '{3}'. Available in 0.10.0+.".format_with(ApplicationParameters.Features.AllowEmptyChecksums, configuration.Features.AllowEmptyChecksums.to_string(), ApplicationParameters.Features.AllowEmptyChecksumsSecure, configuration.Features.AllowEmptyChecksumsSecure.to_string()),
+                      "Require Checksums - Requires packages to have checksums for downloaded resources (both non-secure and secure). Overrides the default feature '{0}' set to '{1}' and '{2}' set to '{3}'.".FormatWith(ApplicationParameters.Features.AllowEmptyChecksums, configuration.Features.AllowEmptyChecksums.ToStringSafe(), ApplicationParameters.Features.AllowEmptyChecksumsSecure, configuration.Features.AllowEmptyChecksumsSecure.ToStringSafe()),
                       option =>
                       {
                           if (option != null)
@@ -127,19 +144,19 @@ namespace chocolatey.infrastructure.app.commands
                           }
                       })
                 .Add("checksum=|downloadchecksum=|download-checksum=",
-                     "Download Checksum - a user provided checksum for downloaded resources for the package. Overrides the package checksum (if it has one).  Defaults to empty. Available in 0.10.0+.",
-                     option => configuration.DownloadChecksum = option.remove_surrounding_quotes())
+                     "Download Checksum - a user provided checksum for downloaded resources for the package. Overrides the package checksum (if it has one).  Defaults to empty.",
+                     option => configuration.DownloadChecksum = option.UnquoteSafe())
                 .Add("checksum64=|checksumx64=|downloadchecksumx64=|download-checksum-x64=",
-                     "Download Checksum 64bit - a user provided checksum for 64bit downloaded resources for the package. Overrides the package 64-bit checksum (if it has one). Defaults to same as Download Checksum. Available in 0.10.0+.",
-                     option => configuration.DownloadChecksum64 = option.remove_surrounding_quotes())
+                     "Download Checksum 64bit - a user provided checksum for 64bit downloaded resources for the package. Overrides the package 64-bit checksum (if it has one). Defaults to same as Download Checksum.",
+                     option => configuration.DownloadChecksum64 = option.UnquoteSafe())
                 .Add("checksumtype=|checksum-type=|downloadchecksumtype=|download-checksum-type=",
-                     "Download Checksum Type - a user provided checksum type. Overrides the package checksum type (if it has one). Used in conjunction with Download Checksum. Available values are 'md5', 'sha1', 'sha256' or 'sha512'. Defaults to 'md5'. Available in 0.10.0+.",
-                     option => configuration.DownloadChecksumType = option.remove_surrounding_quotes())
+                     "Download Checksum Type - a user provided checksum type. Overrides the package checksum type (if it has one). Used in conjunction with Download Checksum. Available values are 'md5', 'sha1', 'sha256' or 'sha512'. Defaults to 'md5'.",
+                     option => configuration.DownloadChecksumType = option.UnquoteSafe())
                 .Add("checksumtype64=|checksumtypex64=|checksum-type-x64=|downloadchecksumtypex64=|download-checksum-type-x64=",
-                     "Download Checksum Type 64bit - a user provided checksum for 64bit downloaded resources for the package. Overrides the package 64-bit checksum (if it has one). Used in conjunction with Download Checksum 64bit. Available values are 'md5', 'sha1', 'sha256' or 'sha512'. Defaults to same as Download Checksum Type. Available in 0.10.0+.",
-                     option => configuration.DownloadChecksumType64 = option.remove_surrounding_quotes())
+                     "Download Checksum Type 64bit - a user provided checksum for 64bit downloaded resources for the package. Overrides the package 64-bit checksum (if it has one). Used in conjunction with Download Checksum 64bit. Available values are 'md5', 'sha1', 'sha256' or 'sha512'. Defaults to same as Download Checksum Type.",
+                     option => configuration.DownloadChecksumType64 = option.UnquoteSafe())
                 .Add("ignorepackagecodes|ignorepackageexitcodes|ignore-package-codes|ignore-package-exit-codes",
-                     "IgnorePackageExitCodes - Exit with a 0 for success and 1 for non-success, no matter what package scripts provide for exit codes. Overrides the default feature '{0}' set to '{1}'. Available in 0.9.10+.".format_with(ApplicationParameters.Features.UsePackageExitCodes, configuration.Features.UsePackageExitCodes.to_string()),
+                     "IgnorePackageExitCodes - Exit with a 0 for success and 1 for non-success, no matter what package scripts provide for exit codes. Overrides the default feature '{0}' set to '{1}'.".FormatWith(ApplicationParameters.Features.UsePackageExitCodes, configuration.Features.UsePackageExitCodes.ToStringSafe()),
                      option =>
                      {
                          if (option != null)
@@ -147,22 +164,22 @@ namespace chocolatey.infrastructure.app.commands
                              configuration.Features.UsePackageExitCodes = false;
                          }
                      })
-                 .Add("usepackagecodes|usepackageexitcodes|use-package-codes|use-package-exit-codes",
-                     "UsePackageExitCodes - Package scripts can provide exit codes. Use those for choco's exit code when non-zero (this value can come from a dependency package). Chocolatey defines valid exit codes as 0, 1605, 1614, 1641, 3010.  Overrides the default feature '{0}' set to '{1}'. Available in 0.9.10+.".format_with(ApplicationParameters.Features.UsePackageExitCodes, configuration.Features.UsePackageExitCodes.to_string()),
+                .Add("usepackagecodes|usepackageexitcodes|use-package-codes|use-package-exit-codes",
+                     "UsePackageExitCodes - Package scripts can provide exit codes. Use those for choco's exit code when non-zero (this value can come from a dependency package). Chocolatey defines valid exit codes as 0, 1605, 1614, 1641, 3010.  Overrides the default feature '{0}' set to '{1}'.".FormatWith(ApplicationParameters.Features.UsePackageExitCodes, configuration.Features.UsePackageExitCodes.ToStringSafe()),
                      option => configuration.Features.UsePackageExitCodes = option != null
                      )
-                 .Add("stoponfirstfailure|stop-on-first-failure|stop-on-first-package-failure",
-                     "Stop On First Package Failure - stop running install, upgrade or uninstall on first package failure instead of continuing with others. Overrides the default feature '{0}' set to '{1}'. Available in 0.10.4+.".format_with(ApplicationParameters.Features.StopOnFirstPackageFailure, configuration.Features.StopOnFirstPackageFailure.to_string()),
+                .Add("stoponfirstfailure|stop-on-first-failure|stop-on-first-package-failure",
+                     "Stop On First Package Failure - stop running install, upgrade or uninstall on first package failure instead of continuing with others. Overrides the default feature '{0}' set to '{1}'.".FormatWith(ApplicationParameters.Features.StopOnFirstPackageFailure, configuration.Features.StopOnFirstPackageFailure.ToStringSafe()),
                      option => configuration.Features.StopOnFirstPackageFailure = option != null
                      )
-                 .Add("exitwhenrebootdetected|exit-when-reboot-detected",
-                     "Exit When Reboot Detected - Stop running install, upgrade, or uninstall when a reboot request is detected. Requires '{0}' feature to be turned on. Will exit with either {1} or {2}. Overrides the default feature '{3}' set to '{4}'. Available in 0.10.12+.".format_with
-                     (ApplicationParameters.Features.UsePackageExitCodes, ApplicationParameters.ExitCodes.ErrorFailNoActionReboot, ApplicationParameters.ExitCodes.ErrorInstallSuspend, ApplicationParameters.Features.ExitOnRebootDetected, configuration.Features.ExitOnRebootDetected.to_string()),
+                .Add("exitwhenrebootdetected|exit-when-reboot-detected",
+                     "Exit When Reboot Detected - Stop running install, upgrade, or uninstall when a reboot request is detected. Requires '{0}' feature to be turned on. Will exit with either {1} or {2}. Overrides the default feature '{3}' set to '{4}'.".FormatWith
+                     (ApplicationParameters.Features.UsePackageExitCodes, ApplicationParameters.ExitCodes.ErrorFailNoActionReboot, ApplicationParameters.ExitCodes.ErrorInstallSuspend, ApplicationParameters.Features.ExitOnRebootDetected, configuration.Features.ExitOnRebootDetected.ToStringSafe()),
                      option => configuration.Features.ExitOnRebootDetected = option != null
                      )
-                 .Add("ignoredetectedreboot|ignore-detected-reboot",
-                     "Ignore Detected Reboot - Ignore any detected reboots if found. Overrides the default feature '{0}' set to '{1}'. Available in 0.10.12+.".format_with
-                     (ApplicationParameters.Features.ExitOnRebootDetected, configuration.Features.ExitOnRebootDetected.to_string()),
+                .Add("ignoredetectedreboot|ignore-detected-reboot",
+                     "Ignore Detected Reboot - Ignore any detected reboots if found. Overrides the default feature '{0}' set to '{1}'.".FormatWith
+                     (ApplicationParameters.Features.ExitOnRebootDetected, configuration.Features.ExitOnRebootDetected.ToStringSafe()),
                      option =>
                      {
                          if (option != null)
@@ -171,8 +188,8 @@ namespace chocolatey.infrastructure.app.commands
                          }
                      })
                 .Add("disable-repository-optimizations|disable-package-repository-optimizations",
-                     "Disable Package Repository Optimizations - Do not use optimizations for reducing bandwidth with repository queries during package install/upgrade/outdated operations. Should not generally be used, unless a repository needs to support older methods of query. When used, this makes queries similar to the way they were done in Chocolatey v0.10.11 and before. Overrides the default feature '{0}' set to '{1}'. Available in 0.10.14+.".format_with
-                        (ApplicationParameters.Features.UsePackageRepositoryOptimizations, configuration.Features.UsePackageRepositoryOptimizations.to_string()),
+                     "Disable Package Repository Optimizations - Do not use optimizations for reducing bandwidth with repository queries during package install/upgrade/outdated operations. Should not generally be used, unless a repository needs to support older methods of query. When used, this makes queries similar to the way they were done in earlier versions of Chocolatey. Overrides the default feature '{0}' set to '{1}'.".FormatWith
+                        (ApplicationParameters.Features.UsePackageRepositoryOptimizations, configuration.Features.UsePackageRepositoryOptimizations.ToStringSafe()),
                      option =>
                      {
                          if (option != null)
@@ -180,18 +197,35 @@ namespace chocolatey.infrastructure.app.commands
                              configuration.Features.UsePackageRepositoryOptimizations = false;
                          }
                      })
+                .Add("pin|pinpackage|pin-package",
+                    "Pin Package - Add a pin to the package after install. Available in 1.2.0+",
+                    option => configuration.PinPackage = option != null
+                    )
+                .Add("skiphooks|skip-hooks",
+                    "Skip hooks - Do not run hook scripts. Available in 1.2.0+",
+                    option => configuration.SkipHookScripts = option != null
+                    )
+                .Add("include-configured-sources",
+                    "Include Configured Sources - When using the '--source' option, this appends the sources that have been saved into the chocolatey.config file by 'source' command.  Available in 2.3.0+",
+                    option => configuration.IncludeConfiguredSources = option != null
+                    )
                 ;
 
-            //todo: package name can be a url / installertype
+            //todo: #770 package name can be a url / installertype
         }
 
-        public virtual void handle_additional_argument_parsing(IList<string> unparsedArguments, ChocolateyConfiguration configuration)
+        public virtual void ParseAdditionalArguments(IList<string> unparsedArguments, ChocolateyConfiguration configuration)
         {
             configuration.Input = string.Join(" ", unparsedArguments);
-            configuration.PackageNames = string.Join(ApplicationParameters.PackageNamesSeparator.to_string(), unparsedArguments.Where(arg => !arg.StartsWith("-")));
+            configuration.PackageNames = string.Join(ApplicationParameters.PackageNamesSeparator.ToStringSafe(), unparsedArguments.Where(arg => !arg.StartsWith("-")));
+
+            if (configuration.RegularOutput)
+            {
+                WarnForRemovedOptions(unparsedArguments.Where(arg => arg.StartsWith("-")), _removedOptions);
+            }
         }
 
-        public virtual void handle_validation(ChocolateyConfiguration configuration)
+        public virtual void Validate(ChocolateyConfiguration configuration)
         {
             if (string.IsNullOrWhiteSpace(configuration.PackageNames))
             {
@@ -214,12 +248,12 @@ namespace chocolatey.infrastructure.app.commands
                 var unparsedOptionsAndPackages = configuration.Input.Split(new[] { " " }, StringSplitOptions.RemoveEmptyEntries);
                 if (!configuration.Information.IsLicensedVersion)
                 {
-                    foreach (var argument in unparsedOptionsAndPackages.or_empty_list_if_null())
+                    foreach (var argument in unparsedOptionsAndPackages.OrEmpty())
                     {
-                        var arg = argument.to_lower();
+                        var arg = argument.ToLowerSafe();
                         if (arg.StartsWith("-dir") || arg.StartsWith("--dir") || arg.StartsWith("-install") || arg.StartsWith("--install"))
                         {
-                            throw new ApplicationException("It appears you are attempting to use options that may be only available in licensed versions of Chocolatey ('{0}'). There may be ways in the open source edition to achieve what you are looking to do. Please remove the argument and consult the documentation.".format_with(arg));
+                            throw new ApplicationException("It appears you are attempting to use options that may be only available in licensed versions of Chocolatey ('{0}'). There may be ways in the open source edition to achieve what you are looking to do. Please remove the argument and consult the documentation.".FormatWith(arg));
                         }
                     }
                 }
@@ -227,37 +261,26 @@ namespace chocolatey.infrastructure.app.commands
 
             if (!string.IsNullOrWhiteSpace(configuration.SourceCommand.Username) && string.IsNullOrWhiteSpace(configuration.SourceCommand.Password))
             {
-                this.Log().Debug(ChocolateyLoggers.LogFileOnly, "Username '{0}' provided. Asking for password.".format_with(configuration.SourceCommand.Username));
-                System.Console.Write("User name '{0}' provided. Password: ".format_with(configuration.SourceCommand.Username));
-                configuration.SourceCommand.Password = InteractivePrompt.get_password(configuration.PromptForConfirmation);
+                this.Log().Debug(ChocolateyLoggers.LogFileOnly, "Username '{0}' provided. Asking for password.".FormatWith(configuration.SourceCommand.Username));
+                System.Console.Write("User name '{0}' provided. Password: ".FormatWith(configuration.SourceCommand.Username));
+                configuration.SourceCommand.Password = InteractivePrompt.GetPassword(configuration.PromptForConfirmation);
             }
         }
 
-        public virtual void help_message(ChocolateyConfiguration configuration)
+        public override void HelpMessage(ChocolateyConfiguration configuration)
         {
             this.Log().Info(ChocolateyLoggers.Important, "Install Command");
             this.Log().Info(@"
 Installs a package or a list of packages (sometimes specified as a
- packages.config). Some may prefer to use `cinst` as a shortcut for
- `choco install`.
-
-NOTE: 100% compatible with older chocolatey client (0.9.8.32 and below)
- with options and switches. Add `-y` for previous behavior with no
- prompt. In most cases you can still pass options and switches with one
- dash (`-`). For more details, see the command reference (`choco -?`).
+ packages.config).
 ");
 
             "chocolatey".Log().Info(ChocolateyLoggers.Important, "Usage");
             "chocolatey".Log().Info(@"
     choco install <pkg|packages.config> [<pkg2> <pkgN>] [<options/switches>]
-    cinst <pkg|packages.config> [<pkg2> <pkgN>] [<options/switches>]
-
-NOTE: `all` is a special package keyword that will allow you to install
- all packages from a custom feed. Will not work with Chocolatey default
- feed. THIS IS NOT YET REIMPLEMENTED.
 
 NOTE: Any package name ending with .config is considered a
- 'packages.config' file. Please see https://bit.ly/packages_config
+ 'packages.config' file. Please see https://ch0.co/packages_config
 
 NOTE: Chocolatey Pro / Business builds on top of a great open source
  experience with quite a few features that enhance the your use of the
@@ -279,34 +302,24 @@ NOTE: Chocolatey Pro / Business builds on top of a great open source
     choco install git -y --params=""'/GitAndUnixToolsOnPath /NoAutoCrlf'""
     choco install git -y --params=""'/GitAndUnixToolsOnPath /NoAutoCrlf'"" --install-arguments=""'/DIR=C:\git'""
     # Params are package parameters, passed to the package
-    # Install args are installer arguments, appended to the silentArgs 
+    # Install args are installer arguments, appended to the silentArgs
     #  in the package for the installer itself
     choco install nodejs.install --version 0.10.35
     choco install git -s ""'https://somewhere/out/there'""
     choco install git -s ""'https://somewhere/protected'"" -u user -p pass
 
-Choco can also install directly from a nuspec/nupkg file. This aids in
+(DEPRECATED) Choco can also install directly from a nuspec/nupkg file. This aids in
  testing packages:
 
     choco install <path/to/nuspec>
     choco install <path/to/nupkg>
 
-Install multiple versions of a package using -m (AllowMultiple versions)
+NOTE: `all` is a special package keyword that will allow you to install
+ all packages available on a source. This keyword is not available for
+ public repositories like the Chocolatey Community Repository, and is
+ intended to  be used with internal package sources only.
 
-    choco install ruby --version 1.9.3.55100 -my
-    choco install ruby --version 2.0.0.59800 -my
-    choco install ruby --version 2.1.5 -my
-
-What is `-my`? See option bundling in the command reference
- (`choco -?`).
-
-NOTE: All of these will add to PATH variable. We'll be adding a special
- option to not allow PATH changes. Until then you will need to manually
- go modify Path to just one Ruby and then use something like uru
- (https://bitbucket.org/jonforums/uru) or pik
- (https://chocolatey.org/packages/pik) to switch between versions.
-
-NOTE: See scripting in the command reference (`choco -?`) for how to 
+NOTE: See scripting in the command reference (`choco --help`) for how to
  write proper scripts and integrations.
 
 ");
@@ -327,7 +340,6 @@ Package Exit Codes:
 In addition to normal exit codes, packages are allowed to exit
  with their own codes when the feature '{0}' is
  turned on. Uninstall command has additional valid exit codes.
- Available in v0.9.10+.
 
 Reboot Exit Codes:
  - 350: pending reboot detected, no action has occurred
@@ -336,8 +348,7 @@ Reboot Exit Codes:
 In addition to the above exit codes, you may also see reboot exit codes
  when the feature '{1}' is turned on. It typically requires
  the feature '{0}' to also be turned on to work properly.
- Available in v0.10.12+.
-".format_with(ApplicationParameters.Features.UsePackageExitCodes, ApplicationParameters.Features.ExitOnRebootDetected));
+".FormatWith(ApplicationParameters.Features.UsePackageExitCodes, ApplicationParameters.Features.ExitOnRebootDetected));
 
             "chocolatey".Log().Info(ChocolateyLoggers.Important, "See It In Action");
             "chocolatey".Log().Info(@"
@@ -364,28 +375,20 @@ NOTE: The filename is only required to end in .config, the name is not required 
       <package id=""chocolateytestpackage"" version=""0.1"" source=""somelocation"" />
       <package id=""alloptions"" version=""0.1.1""
                source=""https://somewhere/api/v2/"" installArguments=""""
-               packageParameters="""" forceX86=""false"" allowMultipleVersions=""false""
-               ignoreDependencies=""false""
+               packageParameters="""" forceX86=""false"" ignoreDependencies=""false""
+               executionTimeout=""1000"" force=""false""
                />
     </packages>
 
 ");
             "chocolatey".Log().Info(ChocolateyLoggers.Important, "Alternative Sources");
             "chocolatey".Log().Info(@"
-Available in 0.9.10+.
 
 Ruby
 This specifies the source is Ruby Gems and that we are installing a
  gem. If you do not have ruby installed prior to running this command,
  the command will install that first.
  e.g. `choco install compass -source ruby`
-
-WebPI
-This specifies the source is Web PI (Web Platform Installer) and that
- we are installing a WebPI product, such as IISExpress. If you do not
- have the Web PI command line installed, it will install that first and
- then the product requested.
- e.g. `choco install IISExpress --source webpi`
 
 Cygwin
 This specifies the source is Cygwin and that we are installing a cygwin
@@ -410,10 +413,10 @@ This specifies that the source is a Windows Feature and we should
             "chocolatey".Log().Info(@"
  * How-To: A complete example of how you can use the PackageParameters argument
    when creating a Chocolatey Package can be seen at
-   https://chocolatey.org/docs/how-to-parse-package-parameters-argument
+   https://docs.chocolatey.org/en-us/guides/create/parse-packageparameters-argument
  * One may want to override the default installation directory of a
    piece of software. See
-   https://chocolatey.org/docs/getting-started#overriding-default-install-directory-or-other-advanced-install-concepts.
+   https://docs.chocolatey.org/en-us/getting-started#overriding-default-install-directory-or-other-advanced-install-concepts.
 
 ");
 
@@ -427,20 +430,49 @@ NOTE: Options and switches apply to all items passed, so if you are
 ");
         }
 
-        public virtual void noop(ChocolateyConfiguration configuration)
+        public virtual void DryRun(ChocolateyConfiguration configuration)
         {
-            _packageService.install_noop(configuration);
+            _packageService.InstallDryRun(configuration);
         }
 
-        public virtual void run(ChocolateyConfiguration configuration)
+        public virtual void Run(ChocolateyConfiguration configuration)
         {
-            _packageService.ensure_source_app_installed(configuration);
-            _packageService.install_run(configuration);
+            _packageService.Install(configuration);
         }
 
-        public virtual bool may_require_admin_access()
+        public virtual bool MayRequireAdminAccess()
         {
             return true;
         }
+
+#pragma warning disable IDE0022, IDE1006
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void configure_argument_parser(OptionSet optionSet, ChocolateyConfiguration configuration)
+            => ConfigureArgumentParser(optionSet, configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void handle_additional_argument_parsing(IList<string> unparsedArguments, ChocolateyConfiguration configuration)
+            => ParseAdditionalArguments(unparsedArguments, configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void handle_validation(ChocolateyConfiguration configuration)
+            => Validate(configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void help_message(ChocolateyConfiguration configuration)
+            => HelpMessage(configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void noop(ChocolateyConfiguration configuration)
+            => DryRun(configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual void run(ChocolateyConfiguration configuration)
+            => Run(configuration);
+
+        [Obsolete("This overload is deprecated and will be removed in v3.")]
+        public virtual bool may_require_admin_access()
+            => MayRequireAdminAccess();
+#pragma warning restore IDE0022, IDE1006
     }
 }
